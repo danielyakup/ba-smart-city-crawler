@@ -1,0 +1,15 @@
+# Virtuelle Umgebung komplett ignorieren
+venv/
+ENV/
+env/
+
+# Zertifikate und Geheimnisse ignorieren
+*.p12
+.env
+
+# Heruntergeladene Projektdaten ignorieren
+data/
+
+# Python-Cache ignorieren
+__pycache__/
+*.pyc
