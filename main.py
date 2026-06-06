@@ -2,6 +2,7 @@ import os
 import json
 import urllib3
 import requests
+import time
 from datetime import datetime
 from requests_pkcs12 import Pkcs12Adapter
 
@@ -13,14 +14,16 @@ CERT_FILE = "certificate.p12"
 # Holt das Passwort aus den Systemeinstellungen, falls nicht vorhanden, nutzt es den Fallback
 CERT_PASSWORD = os.getenv("MOBILITHEK_CERT_PASSWORD", "!Dh6J5c5gaRj") 
 
-# Hier sind alle deine Abonnements aufgelistet
+# Bereinigte Liste ohne die 0-Treffer-Leichen von m8mit
 SUBSCRIPTIONS = {
-    "m8mit_dyn" : "983100383290986496",
-    "m8mit_stat": "983100354711126016",
     "EnBW_dyn": "983100920677924864",
     "EnBW_stat": "983100939883704320",
     "Tesla_dyn": "983101210886012928",
-    "Tesla_stat": "983101301264875520"
+    "Tesla_stat": "983101301264875520",
+    "smartlab_afir_dynamic": "999765134641201152",
+    "smartlab_afir_static": "999765081512103936",
+    "hhenergienetz_stat": "999765979256737792",
+    "hhenergienetz_dyn": "999766014216110080"
 }
 
 def fetch_data(name, sub_id):
@@ -38,7 +41,8 @@ def fetch_data(name, sub_id):
         adapter = Pkcs12Adapter(pkcs12_filename=CERT_FILE, pkcs12_password=CERT_PASSWORD)
         session.mount('https://mobilithek.info:8443', adapter)
         
-        response = session.get(url, headers=headers, verify=False, timeout=60)
+        # Timeout erhöht, da die Smartlab-Massenpakete extrem groß sind
+        response = session.get(url, headers=headers, verify=False, timeout=120)
 
         if response.status_code == 200:
             data = response.json()
@@ -51,15 +55,18 @@ def fetch_data(name, sub_id):
             
             with open(filename, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=4)
-            print(f"Erfolg! Gespeichert unter: {filename}")
+            print(f"Erfolg! Gespeichert unter: {filename}\n")
         else:
-            print(f"Fehler bei {name}: Status-Code {response.status_code}")
+            print(f"Fehler bei {name}: Status-Code {response.status_code}\n")
             
     except Exception as e:
-        print(f"Technischer Fehler bei {name}: {e}")
+        print(f"Technischer Fehler bei {name}: {e}\n")
 
 if __name__ == "__main__":
-    # Die Schleife geht jedes Abonnement in der Liste durch
     for name, sub_id in SUBSCRIPTIONS.items():
         fetch_data(name, sub_id)
+        # 10 Sekunden Zwangspause nach jedem Download, damit die Mobilithek uns nicht blockiert
+        print("Warte 10 Sekunden für die API-Stabilität...")
+        time.sleep(10)
+        
     print("\nAlle Abrufe abgeschlossen.")

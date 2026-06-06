@@ -1,7 +1,8 @@
 # Virtuelle Umgebung komplett ignorieren
 venv/
-ENV/
-env/
+data/
+*.xlsx
+prompt.txt
 
 # Zertifikate und Geheimnisse ignorieren
 *.p12
