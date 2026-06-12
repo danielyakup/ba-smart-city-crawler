@@ -185,36 +185,27 @@ Sie entfernt „straße/strasse/str.", wirft Hausnummern und Sonderzeichen raus 
 
 Wichtig zu wissen: Von den 192 Punkten haben nur 71 überhaupt eine EVSE-ID in der Excel — deshalb braucht es den Straßen-Trick als zweites Standbein.
 
-### Abschnitt 2: Der Hybrid-Scan (Zeilen 88–139)
+### Abschnitt 2: Strukturelles Parsen auf Datensatz-Ebene
 
 ```python
 json_files = [f for f in glob.glob("data/*.json") if "stat" in ... ]
 ```
 `glob` sammelt alle Dateinamen, die auf ein Muster passen. Hier: nur die **statischen** Dateien (Stammdaten), denn nur dort stehen Adressen und IDs — die dynamischen enthalten nur frei/besetzt-Status.
 
-Der entscheidende Trick des Skripts:
-```python
-content = f.read().upper()
-```
-Statt die kompliziert verschachtelte JSON-Struktur jedes Anbieters einzeln zu zerlegen (jeder Anbieter baut sie anders auf!), wird die **gesamte Datei als ein einziger riesiger Text** eingelesen und in Großbuchstaben umgewandelt. Dann wird einfach geprüft: *Kommt diese Zeichenkette irgendwo im Text vor?* Das ist robust gegen die chaotischen Formatunterschiede der Anbieter.
+**Warum nicht einfach Volltext-Suche?** Eine frühere Version las jede Datei als einen riesigen Text und prüfte nur: „Kommt der Straßenname *irgendwo* vor und steht *irgendwo* GÖTTINGEN?" Bei bundesweiten Dateien führte das zu Scheintreffern — eine Theodor-Heuss-Straße in Berlin zählte als Göttingen-Treffer. Deshalb zerlegt das Skript die JSON-Struktur jetzt richtig (Details und Begründung: siehe `ENTSCHEIDUNGSLOG.md`, Eintrag E4).
 
-Pro Datei und pro registriertem Punkt gibt es dann **zwei Wege zum Treffer** (daher „hybrid"):
+Drei Hilfsfunktionen erledigen die Strukturarbeit:
 
-**Match 1 — über die ID (präzise):**
-```python
-for evse_id in p["ids"]:
-    clean_id = evse_id.replace("*", "").replace("-", "")
-    if evse_id in content or clean_id in content:
-        matched = True
-```
-Steht die EVSE-ID im Text? Geprüft wird auch die Variante ohne Trennzeichen (`DE*GOE*E1234` → `DEGOEE1234`), weil Anbieter die IDs unterschiedlich formatieren.
+**`iter_sites`** — läuft die DATEX-II-Verschachtelung ab (`payload → …Publication → Tabelle → Standort`) und liefert jeden Standort einzeln. Das `yield` macht die Funktion zu einem „Generator": Sie gibt die Standorte einen nach dem anderen heraus, statt alle auf einmal in einer Liste zu sammeln — schonend für den Arbeitsspeicher bei 500-MB-Dateien.
 
-**Match 2 — über die Straße (Heuristik als Plan B):**
-```python
-if not matched and p["street"] in streets_found_in_file:
-    matched = True
-```
-Falls keine ID gefunden wurde: Kommt der bereinigte Straßenname in der Datei vor — und zwar nur in Dateien, in denen auch „GÖTTINGEN" steht? (Diese Vorbedingung verhindert, dass eine „BAHNHOFSTRASSE" in München als Göttingen-Treffer zählt.)
+**`extract_addresses`** — holt Stadt, PLZ und Straße aus dem Adressblock. Die Pointe: Die Anbieter legen die Adresse an **unterschiedlichen, jeweils standardkonformen Stellen** ab (Tesla/EnBW unter `locPointLocation` am Standort, Eco-Movement unter `locAreaLocation`, HH Energienetz sogar eine Ebene tiefer an der Station). Die Funktion prüft alle Varianten. Entscheidend: Innerhalb eines Adressblocks gehören Stadt und Straße **garantiert zusammen** — genau das fehlte der Volltext-Methode.
+
+**`extract_evse_ids`** — sammelt alle IDs eines Standorts ein, inklusive der tief versteckten echten EVSE-IDs der einzelnen Ladepunkte (`refillPoint → aegiElectricChargingPoint → idG`, z. B. `DE*TSL*E0K22AF` bei Tesla). `normalize_id` entfernt vorher alle Trennzeichen, damit Schreibvarianten von BNetzA und Anbietern vergleichbar werden.
+
+Pro Datei entstehen so zwei Sammlungen: **alle IDs des Anbieters** (IDs sind deutschlandweit eindeutig, dürfen also aus allen Datensätzen kommen) und **Straßennamen nur aus Datensätzen mit Göttinger Adresse**. Dann gibt es pro BNetzA-Punkt zwei Wege zum Treffer:
+
+- **Match 1 (ID):** Eine normalisierte BNetzA-EVSE-ID kommt in den Anbieter-IDs vor (exakt oder als Teilstück).
+- **Match 2 (Adresse):** Der bereinigte BNetzA-Straßenname stimmt mit der Straße eines Datensatzes überein, der **selbst in Göttingen liegt**.
 
 Die Treffer landen in **Sets** (`hits.add(key)`, `matched_total.add(key)`). Weil Sets jeden Wert nur einmal aufnehmen, kann derselbe Ladepunkt nicht doppelt gezählt werden — auch wenn er in drei Anbieter-Dateien gleichzeitig auftaucht.
 
@@ -226,14 +217,11 @@ coverage = (len(matched_total) / total_points) * 100
 ```
 Die seltsamen Zeichen `:<28` und `:>11` sind nur Formatierung: „linksbündig auf 28 Zeichen auffüllen" bzw. „rechtsbündig auf 11" — so entsteht die saubere Tabelle im Terminal. `len(...)` zählt die Elemente eines Sets.
 
-Seit Juni 2026 zählt das Skript die beiden Match-Arten **getrennt**: Pro Anbieter und insgesamt wird ausgewiesen, wie viele Treffer hart über die EVSE-ID belegt sind und wie viele nur auf der Straßen-Heuristik beruhen. Das Ergebnis ist ein **Intervall** statt einer einzelnen Zahl: Die belastbare Abdeckung liegt zwischen dem ID-Wert (Untergrenze, aktuell 3,12 %) und dem Gesamtwert (Obergrenze, aktuell 42,19 %). Ein Punkt gilt dabei als „hart", sobald ihn mindestens eine Anbieter-Datei per ID matcht — auch wenn andere Dateien ihn nur über die Straße finden.
+Das Skript zählt die beiden Match-Arten **getrennt**: Pro Anbieter und insgesamt wird ausgewiesen, wie viele Treffer hart über die EVSE-ID belegt sind und wie viele über die Göttingen-Adresse kamen. Zusätzlich zeigt die Spalte „Goe-Sites", wie viele Standorte mit Göttinger Adresse der Anbieter überhaupt führt — eine wichtige Plausibilitätskontrolle. Aktueller Stand (Datensatz-Matching): **26,04 %** Gesamtabdeckung (50 von 192), davon 3 Punkte hart per ID belegt. Ein Punkt gilt als „hart", sobald ihn mindestens eine Anbieter-Datei per ID matcht — auch wenn andere Dateien ihn nur über die Adresse finden.
 
 ### Eine ehrliche Einordnung der Methode
 
-Der Volltext-Ansatz ist pragmatisch und schnell, hat aber bekannte Unschärfen, die du in der Arbeit als Limitation erwähnen kannst:
-- **Straßen-Matching ist eine Heuristik:** Wenn ein Anbieter irgendeinen Standort in einer gleichnamigen Straße in Göttingen listet, zählt der BNetzA-Punkt als „gefunden", obwohl es nicht zwingend derselbe physische Ladepunkt ist.
-- **Datei-Ebene statt Datensatz-Ebene:** „GÖTTINGEN und die Straße kommen in derselben *Datei* vor" ist schwächer als „im selben *Datensatz*".
-- Dafür ist die Methode **robust**: Sie funktioniert für alle Anbieter gleich, egal wie unterschiedlich deren JSON-Strukturen sind.
+Das Datensatz-Matching hat die größte Schwäche der alten Volltext-Methode beseitigt (Scheintreffer durch gleichnamige Straßen in anderen Städten). Restliche Unschärfen, die als Limitation in die Arbeit gehören, sind in `ENTSCHEIDUNGSLOG.md` (E4) dokumentiert — die wichtigste: Stehen mehrere registrierte Ladeeinrichtungen in derselben Göttinger Straße, kann ein einziger Anbieter-Standort sie alle als „abgedeckt" markieren. Die 26,04 % sind daher eher eine obere Schätzung.
 
 ---
 
