@@ -224,7 +224,9 @@ Die Treffer landen in **Sets** (`hits.add(key)`, `matched_total.add(key)`). Weil
 print(f"{provider:<28} | {len(hits):>18}")
 coverage = (len(matched_total) / total_points) * 100
 ```
-Die seltsamen Zeichen `:<28` und `:>18` sind nur Formatierung: „linksbündig auf 28 Zeichen auffüllen" bzw. „rechtsbündig auf 18" — so entsteht die saubere Tabelle im Terminal. `len(...)` zählt die Elemente eines Sets. Am Ende wird der Anteil der eindeutig gefundenen Punkte an allen 192 berechnet — das ist die **Abdeckungsquote** (aktuell 42,19 %).
+Die seltsamen Zeichen `:<28` und `:>11` sind nur Formatierung: „linksbündig auf 28 Zeichen auffüllen" bzw. „rechtsbündig auf 11" — so entsteht die saubere Tabelle im Terminal. `len(...)` zählt die Elemente eines Sets.
+
+Seit Juni 2026 zählt das Skript die beiden Match-Arten **getrennt**: Pro Anbieter und insgesamt wird ausgewiesen, wie viele Treffer hart über die EVSE-ID belegt sind und wie viele nur auf der Straßen-Heuristik beruhen. Das Ergebnis ist ein **Intervall** statt einer einzelnen Zahl: Die belastbare Abdeckung liegt zwischen dem ID-Wert (Untergrenze, aktuell 3,12 %) und dem Gesamtwert (Obergrenze, aktuell 42,19 %). Ein Punkt gilt dabei als „hart", sobald ihn mindestens eine Anbieter-Datei per ID matcht — auch wenn andere Dateien ihn nur über die Straße finden.
 
 ### Eine ehrliche Einordnung der Methode
 

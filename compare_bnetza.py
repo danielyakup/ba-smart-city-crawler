@@ -92,7 +92,10 @@ json_files = [
 ]
 
 provider_matches = {}      # Anbieter -> Menge der getroffenen Punkt-Schlüssel (eindeutig)
+provider_id_matches = {}   # Anbieter -> davon hart über EVSE-ID belegt
 matched_total = set()      # global eindeutige Treffer
+matched_by_id = set()      # global: über EVSE-ID belegt (hart, eindeutig)
+matched_by_street = set()  # global: über Straßen-Heuristik gefunden (unscharf)
 
 print(f"Scanne {len(json_files)} statische Dateien (Optimierter Hybrid-Scan)...\n")
 
@@ -111,6 +114,7 @@ for file_path in json_files:
 
     has_goettingen = "GÖTTINGEN" in content or "GOETTINGEN" in content
     hits = provider_matches.setdefault(provider, set())
+    id_hits = provider_id_matches.setdefault(provider, set())
 
     # Performance-Boost: Wir prüfen vorab, welche Straßen überhaupt im Text existieren
     streets_found_in_file = set()
@@ -121,33 +125,48 @@ for file_path in json_files:
 
     # Jetzt loopen wir durch die Punkte (geht blitzschnell über Set-Lookups)
     for key, p in points.items():
-        matched = False
+        match_type = None
 
         # Match 1 (ID-basiert): echte EVSE-ID oder Variante ohne Trennzeichen (* / -)
         for evse_id in p["ids"]:
             clean_id = evse_id.replace("*", "").replace("-", "")
             if evse_id in content or clean_id in content:
-                matched = True
+                match_type = "id"
                 break
 
         # Match 2 (Text-basiert): Straße wurde vorab im Text verifiziert
-        if not matched and p["street"] in streets_found_in_file:
-            matched = True
+        if match_type is None and p["street"] in streets_found_in_file:
+            match_type = "street"
 
-        if matched:
+        if match_type:
             hits.add(key)
             matched_total.add(key)
+            if match_type == "id":
+                id_hits.add(key)
+                matched_by_id.add(key)
+            else:
+                matched_by_street.add(key)
 
 print("\n")
 
 # 3. Ausgabe -----------------------------------------------------------------
 print("=== GÖTTINGEN-ABDECKUNG PRO ANBIETER (eindeutige Punkte) ===")
-print(f"{'Anbieter':<28} | {'Getroffene Punkte':>18}")
-print("-" * 51)
+print(f"{'Anbieter':<28} | {'per EVSE-ID':>11} | {'per Straße':>10} | {'gesamt':>6}")
+print("-" * 66)
 for provider, hits in sorted(provider_matches.items()):
-    print(f"{provider:<28} | {len(hits):>18}")
-print("-" * 51)
+    id_hits = provider_id_matches.get(provider, set())
+    print(f"{provider:<28} | {len(id_hits):>11} | {len(hits - id_hits):>10} | {len(hits):>6}")
+print("-" * 66)
 
+# Ein Punkt gilt als hart belegt, sobald ihn mindestens eine Datei per ID matcht;
+# nur die restlichen Straßen-Treffer bleiben heuristisch (anfällig für
+# Straßennamen, die auch in anderen Städten existieren)
+heuristic_only = matched_by_street - matched_by_id
 coverage = (len(matched_total) / total_points) * 100 if total_points else 0
-print(f"\nEindeutig abgedeckte Punkte: {len(matched_total)} von {total_points}")
-print(f"Absolute Gesamtabdeckung der Pipeline: {coverage:.2f}%")
+coverage_hard = (len(matched_by_id) / total_points) * 100 if total_points else 0
+coverage_heur = (len(heuristic_only) / total_points) * 100 if total_points else 0
+
+print(f"\nHart belegt über EVSE-ID:      {len(matched_by_id):>3} von {total_points}  ({coverage_hard:.2f}%)")
+print(f"Nur über Straßen-Heuristik:    {len(heuristic_only):>3} von {total_points}  ({coverage_heur:.2f}%)")
+print(f"Eindeutig abgedeckt insgesamt: {len(matched_total):>3} von {total_points}  ({coverage:.2f}%)")
+print(f"\n→ Belastbare Abdeckung: zwischen {coverage_hard:.2f}% (nur ID-belegt) und {coverage:.2f}% (inkl. Heuristik)")
