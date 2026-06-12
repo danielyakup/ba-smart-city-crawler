@@ -20,10 +20,12 @@ SUBSCRIPTIONS = {
     "EnBW_stat": "983100939883704320",
     "Tesla_dyn": "983101210886012928",
     "Tesla_stat": "983101301264875520",
-    "smartlab_afir_dynamic": "999765134641201152",
-    "smartlab_afir_static": "999765081512103936",
     "hhenergienetz_stat": "999765979256737792",
-    "hhenergienetz_dyn": "999766014216110080"
+    "hhenergienetz_dyn": "999766014216110080",
+    # Achtung: ecomovement_stat liefert ~467 MB pro Snapshot –
+    # bei täglicher Historisierung ca. 14 GB/Monat Speicherbedarf
+    "ecomovement_stat": "999765881516871680",
+    "ecomovement_dyn": "999765843465994240"
 }
 
 def fetch_data(name, sub_id):
