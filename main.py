@@ -25,7 +25,10 @@ SUBSCRIPTIONS = {
     # Achtung: ecomovement_stat liefert ~467 MB pro Snapshot –
     # bei täglicher Historisierung ca. 14 GB/Monat Speicherbedarf
     "ecomovement_stat": "999765881516871680",
-    "ecomovement_dyn": "999765843465994240"
+    "ecomovement_dyn": "999765843465994240",
+    # chargecloud GmbH – enthält u.a. Stadtwerke Göttingen (DE*GOE*)
+    "chargecloud_stat": "1006999576359198720",
+    "chargecloud_dyn": "1006999499934756864"
 }
 
 def fetch_data(name, sub_id):
