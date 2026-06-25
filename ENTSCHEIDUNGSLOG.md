@@ -55,3 +55,33 @@ Pro Anbieter (Datensatz-Ebene): Eco-Movement 28 Punkte (16 Göttingen-Standorte)
 - Straßen-Matching nutzt Teilstring-Vergleich normalisierter Namen; mehrere BNetzA-Ladeeinrichtungen in derselben Straße können durch einen einzigen Anbieter-Standort als abgedeckt gelten, auch wenn der Anbieter nur einen Teil davon führt. Die 26,04 % bleiben daher eher eine obere Schätzung der echten Abdeckung.
 - Nur 71 der 192 BNetzA-Punkte tragen überhaupt eine EVSE-ID im Register; die ID-basierte Untergrenze kann methodisch bedingt nie über ~37 % liegen. Auch das BNetzA-Register selbst ist also lückenhaft gepflegt.
 - Die alte Volltext-Methode fand 6 ID-Treffer bei Eco-Movement, das strukturelle Parsen nur 3 — die übrigen 3 IDs stehen vermutlich in nicht ausgewerteten Feldern (z. B. URLs oder Freitext). Konservativ werden nur die strukturell belegten gezählt.
+
+## E5 — 25.06.2026: Aufnahme von chargecloud GmbH, Abdeckung auf 84,9 %
+
+**Entscheidung:** Zwei weitere Mobilithek-Abonnements (chargecloud GmbH, statisch/dynamisch, IDs `1006999576359198720` / `1006999499934756864`) in die Pipeline aufgenommen.
+
+**Anlass und Recherchepfad:** In Vorbereitung auf eine Rückfrage an den Praxispartner (Mathias Willnat, Stadt Göttingen) — zugesagt im Experteninterview vom 23.06.2026 — sollte validiert werden, warum die Stadtwerke Göttingen AG trotz 115 BNetzA-Einträgen in keinem bisherigen Mobilithek-Feed erscheint. Eine gezielte Suche im Mobilithek-Datenkatalog unter „AFIR Göttingen" ergab das Datenangebot der chargecloud GmbH, das die Stadtwerke Göttingen im DATEX-II-V3-Format enthält (EVSE-IDs der Form `DE*GOE*`). Die ursprüngliche Anfrage an den Praxispartner erübrigte sich damit; stattdessen wurde ihm das Ergebnis mitgeteilt.
+
+**Methodische Einordnung:** Die Aufnahme von chargecloud folgt derselben Logik wie E1 (Erweiterung um einen Aggregator-Feed), ist aber anders motiviert: Während Eco-Movement (E1) als Make-or-Buy-Vergleich aufgenommen wurde, ist chargecloud eine direkte Reaktion auf eine identifizierte Abdeckungslücke. Im ADR-Rahmen entspricht das einem weiteren BIE-Zyklus: Problem erkannt (fehlende Stadtwerke) → Artefakt erweitert (neues Abo) → Wirkung evaluiert (Abdeckungsrate).
+
+**Ergänzender Befund — m8mit:** Parallel wurde festgestellt, dass auf der Kartenansicht m8mit.de/stations weitere Betreiber für den Raum Göttingen sichtbar sind (u. a. EWE Go GmbH, Pfalzwerke AG), deren Mobilithek-Feeds jedoch keine Göttingen-Daten liefern. Diese Betreiber sind im BNetzA-Register mit jeweils 2–6 Einträgen vertreten. Das Muster entspricht dem aus E2 bekannten Smartlab-Befund: Endkunden-Karten und amtlicher Meldekanal divergieren. Die betroffenen Betreiber machen einen Teil der verbleibenden ~15 % Abdeckungslücke aus; sie sind über den gewählten Ansatz strukturell nicht schließbar.
+
+**Strukturelle Erkenntnis zur EVSE-ID-Quote:** Die EVSE-ID-basierte Trefferrate verbleibt bei 26,6 % (51/192), obwohl chargecloud 222 `DE*GOE*`-Ladepunkte enthält. Ursache: Die BNetzA hat für 121 der 192 Göttinger Ladeeinrichtungen (63 %) gar keine EVSE-IDs im Register eingetragen — diese Punkte sind per Definition nur über Adress-Matching erreichbar. Die maximale erreichbare ID-Trefferrate liegt damit strukturell bei ~37 %. Die 26,6 % entsprechen 68 % der ID-fähigen BNetzA-Punkte — ein plausibler Wert.
+
+**Ergebnis (Stand 25.06.2026):**
+
+| Anbieter | Göttingen-Standorte | per EVSE-ID | per Adresse | gesamt |
+|---|---|---|---|---|
+| chargecloud | 106 | 48 | 78 | 126 |
+| Eco-Movement | 16 | 3 | 25 | 28 |
+| Tesla | 1 | 0 | 8 | 8 |
+| EnBW | 2 | 0 | 7 | 7 |
+| HH Energienetz | 3 | 0 | 7 | 7 |
+| Smartlab | 0 | 0 | 0 | 0 |
+
+| Methode | Abdeckung | Bewertung |
+|---|---|---|
+| Stand nach E4 (12.06.) | 26,04 % (50/192) | belastbar, zitierfähig |
+| Nach Aufnahme chargecloud | **84,9 % (163/192)** | belastbar, zitierfähig |
+| davon hart per EVSE-ID | 26,6 % (51/192) | Untergrenze |
+| davon nur Adress-Matching | 58,3 % (112/192) | plausibel, strukturell begründet |
