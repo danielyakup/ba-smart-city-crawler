@@ -25,6 +25,9 @@ venv/bin/python compare_bnetza.py
 venv/bin/python extract_stammdaten.py    # Göttinger Ladepunkte + Stammdaten (~2 min)
 venv/bin/python extract_zeitreihe.py     # Statusänderungen aus den dyn-Delta-Feeds
 venv/bin/python berechne_kennzahlen.py   # Ladevorgänge + Occupancy-Kennzahlen
+
+# Dashboard (zeigt auswertung/*.csv an; pyarrow MUSS 19.x bleiben, s. requirements.txt)
+venv/bin/streamlit run dashboard.py
 ```
 
 Es gibt keine Tests und keinen Linter. Authentifizierung: `certificate.p12` (PKCS12-Klientzertifikat, gitignored) + Passwort aus `MOBILITHEK_CERT_PASSWORD` (Fallback ist in `main.py` hartkodiert).

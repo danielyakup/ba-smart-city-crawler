@@ -105,8 +105,11 @@ def aggregiere_kennzahlen(events, zeitreihe, stammdaten):
         events = events[events["plausibel"]].copy()
 
     if not events.empty:
-        events["wochenende"] = events["start"].dt.dayofweek >= 5
-        events["stunde"] = events["start"].dt.hour
+        # Für Tageszeit/Wochentag zählt die LOKALE Zeit (die Zeitreihe ist UTC;
+        # "nachts" um 23 Uhr deutscher Zeit wäre in UTC sonst 21 Uhr)
+        start_lokal = events["start"].dt.tz_convert("Europe/Berlin")
+        events["wochenende"] = start_lokal.dt.dayofweek >= 5
+        events["stunde"] = start_lokal.dt.hour
 
         agg = events.groupby("evse_id").agg(
             ladevorgaenge=("start", "count"),

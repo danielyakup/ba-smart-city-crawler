@@ -255,6 +255,12 @@ Die wichtigste Zeile ist die **Plausibilitätsgrenze von 12 Stunden**: Wenn zwis
 
 Ergebnis: `ladevorgaenge_goettingen.csv` (ein Ladevorgang pro Zeile) und `kennzahlen_ladepunkte.csv` (eine Zeile pro Ladepunkt, inklusive Stammdaten — auch für Punkte ganz ohne beobachtete Ladevorgänge, denn „nichts beobachtet" ist ein Befund, kein Loch).
 
+### Obendrauf: `dashboard.py` — die Oberfläche für die Stadtverwaltung
+
+Ein **Streamlit**-Dashboard (Streamlit macht aus einem Python-Skript eine kleine Web-App, ohne dass man HTML oder JavaScript schreiben muss). Start mit `venv/bin/streamlit run dashboard.py`, dann im Browser unter `localhost:8501` erreichbar.
+
+Es berechnet selbst nichts — es zeigt nur die CSVs aus `auswertung/` an. Aufbau von oben nach unten: Lesehinweis (Untergrenzen!), Gesamt-Kennzahlen, Stationsauswahl per Dropdown (die Kennzahlen der Auswahl erscheinen sofort — die Interview-Anforderung „beim Anklicken sichtbar"), zwei Balkendiagramme (Tageszeit, Wochentag) und der Export-Bereich mit Download-Buttons für alle Ebenen einzeln plus ein Excel-Gesamtpaket. `@st.cache_data` sorgt dafür, dass die CSVs nur einmal gelesen werden, nicht bei jedem Klick neu.
+
 ---
 
 ## Glossar
