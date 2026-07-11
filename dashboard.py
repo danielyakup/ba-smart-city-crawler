@@ -99,9 +99,18 @@ if len(plausible):
 st.divider()
 st.subheader("Station auswählen")
 
-# Auswahl über den Standort (Straße); "Alle" zeigt das Gesamtbild
+# Auswahl über den Standort (Straße); "Alle" zeigt das Gesamtbild.
+# Im Dropdown steht die Zahl der Ladepunkte gleich mit dabei.
+punkte_je_standort = stammdaten["strasse"].value_counts()
 standorte = sorted(stammdaten["strasse"].dropna().unique())
-auswahl = st.selectbox("Standort", ["— Alle Standorte —"] + standorte)
+auswahl = st.selectbox(
+    "Standort",
+    ["— Alle Standorte —"] + standorte,
+    format_func=lambda s: (
+        s if s == "— Alle Standorte —"
+        else f"{s}  ({punkte_je_standort[s]} Ladepunkte)"
+    ),
+)
 
 if auswahl == "— Alle Standorte —":
     punkte = kennzahlen
@@ -123,7 +132,10 @@ st.dataframe(
         "evse_id", "strasse", "betreiber", "strom_art", "max_leistung_kw",
         "ladevorgaenge", "belegt_stunden", "mittlere_dauer_min",
         "occupancy_rate_prozent",
-    ]].rename(columns={
+    ]]
+    # Aktivste Ladepunkte zuerst — die interessieren die Verwaltung am meisten
+    .sort_values("ladevorgaenge", ascending=False)
+    .rename(columns={
         "evse_id": "EVSE-ID", "strasse": "Straße", "betreiber": "Betreiber",
         "strom_art": "AC/DC", "max_leistung_kw": "max. kW",
         "ladevorgaenge": "Ladevorgänge", "belegt_stunden": "Belegt (h)",
@@ -132,6 +144,13 @@ st.dataframe(
     }),
     width='stretch',
     hide_index=True,
+    column_config={
+        "Ladevorgänge": st.column_config.NumberColumn(format="%d"),
+        "Belegt (h)": st.column_config.NumberColumn(format="%.1f h"),
+        "Ø Dauer (min)": st.column_config.NumberColumn(format="%.0f min"),
+        "Occupancy (%)": st.column_config.NumberColumn(format="%.2f %%"),
+        "max. kW": st.column_config.NumberColumn(format="%.0f kW"),
+    },
 )
 
 # --- Verteilungen (Interview Block B: Tageszeit, Wochentag) ----------------------

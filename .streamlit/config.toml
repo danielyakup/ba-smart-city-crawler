@@ -1,0 +1,5 @@
+# Theme des Dashboards (Basis-Schriftgröße erhöht: Streamlit-Standard 16px
+# ist für Verwaltungs-Nutzer am Desktop zu klein; Diagramm-Blau als Akzent)
+[theme]
+primaryColor = "#2a78d6"
+baseFontSize = 18
