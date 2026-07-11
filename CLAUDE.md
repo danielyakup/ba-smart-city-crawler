@@ -20,6 +20,11 @@ venv/bin/python -c "from main import fetch_data; fetch_data('EnBW_stat', '983100
 
 # BNetzA-Abgleich: Abdeckungsquote für Göttingen (parst alle *stat*-JSONs, dauert ~1–2 min)
 venv/bin/python compare_bnetza.py
+
+# Export-Pipeline für die Stadtverwaltung (in dieser Reihenfolge; Ausgabe: auswertung/*.csv)
+venv/bin/python extract_stammdaten.py    # Göttinger Ladepunkte + Stammdaten (~2 min)
+venv/bin/python extract_zeitreihe.py     # Statusänderungen aus den dyn-Delta-Feeds
+venv/bin/python berechne_kennzahlen.py   # Ladevorgänge + Occupancy-Kennzahlen
 ```
 
 Es gibt keine Tests und keinen Linter. Authentifizierung: `certificate.p12` (PKCS12-Klientzertifikat, gitignored) + Passwort aus `MOBILITHEK_CERT_PASSWORD` (Fallback ist in `main.py` hartkodiert).
@@ -30,6 +35,7 @@ Zwei Stufen, lose gekoppelt über den `data/`-Ordner (gitignored):
 
 1. **`main.py` (Beschaffung):** `SUBSCRIPTIONS`-Dict (Name → Mobilithek-Abo-ID) → Abruf via `requests` + `Pkcs12Adapter` → Speichern als `data/{name}_{timestamp}.json`. Pro Anbieter zwei Feeds: `*_stat` (Stammdaten: Adresse, Leistung) und `*_dyn` (Belegung). Die Zeitstempel-Dateinamen SIND die Historisierung — alte Snapshots nie überschreiben oder löschen.
 2. **`compare_bnetza.py` (Evaluation):** Liest die BNetzA-Excel (Header wird dynamisch gesucht, Göttingen-Filter über Ort + PLZ 3707x/3708x), parst dann alle statischen JSONs strukturell und matcht auf **Datensatz-Ebene** über zwei Wege: (1) normalisierte EVSE-IDs, (2) Straßenname nur bei Datensätzen, deren eigene Adresse in Göttingen liegt. Ausgabe trennt harte ID-Treffer von Adress-Treffern.
+3. **Export-Pipeline (`extract_stammdaten.py` → `extract_zeitreihe.py` → `berechne_kennzahlen.py`):** Setzt die Interview-Anforderungen um (E6/E7). Zentrale Fallstricke: Die **dyn-Feeds sind Delta-Feeds** (nur Änderungen, Tesla z. B. 1 Punkt pro Snapshot; in `messageContainer` verpackt, payload ist eine LISTE; EnBW nennt den Statusblock `aegiRefillPointStatus` statt `aegiElectricChargingPointStatus`). Kennzahlen sind daher **beobachtete Untergrenzen**; Events > 12 h gelten als unplausibel (verpasste Zwischen-Updates). Göttingen-Filter passiert bei der Extraktion, `auswertung/` enthält die CSVs.
 
 ## DATEX-II-Fallstricke (teuer erarbeitet, nicht neu entdecken)
 

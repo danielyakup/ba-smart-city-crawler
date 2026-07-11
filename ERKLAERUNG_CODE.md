@@ -1,4 +1,4 @@
-# Code-Erklärung: `main.py` und `compare_bnetza.py`
+# Code-Erklärung: Crawler, Abdeckungs-Check und Export-Pipeline
 
 *Für Leser ohne Python-Vorkenntnisse. Am besten neben dem jeweiligen Code öffnen und parallel lesen.*
 
@@ -222,6 +222,38 @@ Das Skript zählt die beiden Match-Arten **getrennt**: Pro Anbieter und insgesam
 ### Eine ehrliche Einordnung der Methode
 
 Das Datensatz-Matching hat die größte Schwäche der alten Volltext-Methode beseitigt (Scheintreffer durch gleichnamige Straßen in anderen Städten). Restliche Unschärfen, die als Limitation in die Arbeit gehören, sind in `ENTSCHEIDUNGSLOG.md` (E4) dokumentiert — die wichtigste: Stehen mehrere registrierte Ladeeinrichtungen in derselben Göttinger Straße, kann ein einziger Anbieter-Standort sie alle als „abgedeckt" markieren. Die 26,04 % sind daher eher eine obere Schätzung.
+
+---
+
+## Teil 3 — Die Export-Pipeline: `extract_stammdaten.py`, `extract_zeitreihe.py`, `berechne_kennzahlen.py`
+
+Diese drei Skripte setzen die Interview-Anforderungen um (Exportfunktion, Occupancy Rate — siehe ENTSCHEIDUNGSLOG E6/E7). Sie bauen aufeinander auf und werden **in dieser Reihenfolge** ausgeführt; alle Ergebnisse landen als Excel-taugliche CSV-Dateien (Semikolon-getrennt) im Ordner `auswertung/`.
+
+### Skript 1: `extract_stammdaten.py` — Wer und wo sind die Göttinger Ladepunkte?
+
+Geht alle **statischen** Feeds durch (dieselbe Parsing-Logik wie `compare_bnetza.py`: `iter_sites`, `extract_addresses`, `normalize_id` — bewusst kopiert statt importiert, damit jedes Skript für sich lesbar bleibt) und schreibt **eine Zeile pro Ladepunkt**: EVSE-ID, Adresse, Betreiber, Leistung in kW, AC/DC, Steckertypen.
+
+Zwei Dinge sind besonders:
+- **Der Göttingen-Filter passiert hier**, nicht später: Nur Standorte, deren eigene Adresse in Göttingen liegt, kommen in die Tabelle. Die bundesweiten Rohdaten in `data/` bleiben unberührt — für eine andere Stadt müsste man nur `is_goettingen()` austauschen.
+- Neben der EVSE-ID werden auch **Station- und Site-ID mitgespeichert**. Das sind die „Join-Schlüssel": Skript 2 braucht sie, um Belegungs-Updates dem richtigen Ladepunkt zuzuordnen, denn die Anbieter referenzieren in den dynamischen Feeds mal den Punkt, mal die Station.
+
+Ergebnis: `stammdaten_goettingen.csv` mit 317 Ladepunkten.
+
+### Skript 2: `extract_zeitreihe.py` — Wann hat sich welcher Status geändert?
+
+Hier steckt die wichtigste Erkenntnis der ganzen Auswertung: Die dynamischen Feeds sind **Delta-Feeds**. Ein Snapshot enthält *nicht* den Zustand aller Ladepunkte, sondern nur die, deren Status sich gerade geändert hat (Tesla: genau einer pro Snapshot — bundesweit!). Man kann den Status also nicht einfach „ablesen", sondern muss alle beobachteten Änderungen einsammeln und davon ausgehen, dass ein Status so lange gilt, bis die nächste Änderung beobachtet wird.
+
+Das Skript geht alle ~3.900 dynamischen Snapshots durch, behält nur Updates, deren ID zu einem Göttinger Ladepunkt aus Skript 1 passt, und **dedupliziert**: Dieselbe Änderung (gleicher Punkt, gleicher Zeitpunkt, gleicher Status) kann in mehreren Abrufen stecken, zählt aber nur einmal. Praktischer Nebengewinn: Das Anbieter-Feld `lastUpdated` verrät den *echten* Änderungszeitpunkt — genauer als unser 30-Minuten-Abrufraster.
+
+Ergebnis: `statusaenderungen_goettingen.csv` — eine Zeile pro beobachteter Statusänderung.
+
+### Skript 3: `berechne_kennzahlen.py` — Die Zahlen fürs Rathaus
+
+Segmentiert aus der Zeitreihe **Ladevorgänge** (Status wechselt auf `charging`/`occupied` → Beginn; nächste Änderung weg davon → Ende) und aggregiert daraus je Ladepunkt die Interview-Kennzahlen: Occupancy Rate, Anzahl Ladevorgänge, mittlere Dauer, Wochenend- und Nachtanteil.
+
+Die wichtigste Zeile ist die **Plausibilitätsgrenze von 12 Stunden**: Wenn zwischen zwei Abrufen Updates verloren gehen (Delta-Problem!), sieht ein Ladepunkt tagelang „belegt" aus. Solche Schein-Ladevorgänge werden markiert und fließen nicht in die Kennzahlen ein — sie bleiben aber im Export sichtbar, damit nichts stillschweigend verschwindet. Deshalb gilt für alle Kennzahlen: Es sind **beobachtete Untergrenzen** der echten Nutzung, keine vollständige Zählung (ausführlich: ENTSCHEIDUNGSLOG E7).
+
+Ergebnis: `ladevorgaenge_goettingen.csv` (ein Ladevorgang pro Zeile) und `kennzahlen_ladepunkte.csv` (eine Zeile pro Ladepunkt, inklusive Stammdaten — auch für Punkte ganz ohne beobachtete Ladevorgänge, denn „nichts beobachtet" ist ein Befund, kein Loch).
 
 ---
 

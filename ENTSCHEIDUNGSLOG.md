@@ -85,3 +85,40 @@ Pro Anbieter (Datensatz-Ebene): Eco-Movement 28 Punkte (16 Göttingen-Standorte)
 | Nach Aufnahme chargecloud | **84,9 % (163/192)** | belastbar, zitierfähig |
 | davon hart per EVSE-ID | 26,6 % (51/192) | Untergrenze |
 | davon nur Adress-Matching | 58,3 % (112/192) | plausibel, strukturell begründet |
+
+## E6 — 11.07.2026: Export-Pipeline für die Stadtverwaltung (drei Ebenen, Göttingen-Filter bei der Extraktion)
+
+**Anlass:** Umsetzung der im Experteninterview (23.06.2026, Block B und D) erhobenen Anforderungen: Der Praxispartner benötigt exportierbare Auslastungsdaten — die Exportfunktion wurde im Interview als *wichtigstes Designmerkmal* benannt. Ein Dashboard ist Ausblick; der belastbare Kern ist die Datenaufbereitung.
+
+**Entscheidung 1 — Drei Export-Ebenen statt einer:** Die Pipeline erzeugt drei aufeinander aufbauende CSV-Dateien im neuen Ordner `auswertung/`:
+
+| Ebene | Datei | Inhalt | Interview-Bezug |
+|---|---|---|---|
+| 1 Stammdaten | `stammdaten_goettingen.csv` | Eine Zeile pro Ladepunkt: EVSE-ID, Adresse, Betreiber, Leistung, AC/DC | Kennzahlen brauchen Kontext (B.5: 22 kW vs. 150 kW) |
+| 2 Ereignisse | `ladevorgaenge_goettingen.csv` | Ein beobachteter Ladevorgang pro Zeile: Start, Ende, Dauer | B.2: Event-Aggregation „inhaltlich gleichwertig und datensparender" |
+| 3 Kennzahlen | `kennzahlen_ladepunkte.csv` | Occupancy Rate, Anzahl/Ø-Dauer der Ladevorgänge, Wochenend-/Nachtanteil je Ladepunkt | B.1/B.4: Occupancy Rate als wichtigste Kennzahl |
+
+Die Trennung folgt der Interview-Aussage, dass die Verwaltung sowohl fertige Kennzahlen als auch Rohmaterial für eigene Auswertungen braucht; CSV mit Semikolon-Trennung und BOM ist direkt in deutschem Excel öffenbar (das heutige Arbeitswerkzeug des Praxispartners, vgl. Block A: BNetzA-Tabelle wird manuell in Excel gefiltert).
+
+**Entscheidung 2 — Göttingen-Filter bei der Extraktion, nicht im Export:** Die Feeds sind bundesweit (bis 542 MB pro Snapshot); ungefiltert wären es Millionen Zeilen — weder in Excel handhabbar noch im RAM der VM verarbeitbar. Gefiltert wird über die erprobte Datensatz-Logik aus E4 (Site-Adresse in Göttingen, keine Volltext-Treffer). Die rohen bundesweiten Snapshots in `data/` bleiben unverändert erhalten: Für eine andere Kommune muss nur die Filterfunktion (`is_goettingen()`) ersetzt werden, die Historie ist rückwirkend neu auswertbar. Damit bleibt das Artefakt generalisierbar (ADR Stage 4), ohne die Auswertung für den konkreten Anwendungsfall zu verwässern.
+
+**Entscheidung 3 — Join über mehrere ID-Ebenen:** Stammdaten und Belegungsdaten werden über normalisierte IDs verknüpft (Normalisierung wie in E4). Da die Anbieter in den dynamischen Feeds auf unterschiedliche Ebenen referenzieren (Ladepunkt, Station oder Site), führt die Stammdaten-Tabelle alle drei ID-Ebenen als Join-Schlüssel mit; die Zeitreihe dokumentiert je Update, über welche Ebene der Treffer zustande kam (`match_ebene`). Ergebnis: 454 von 456 Updates matchen direkt auf Ladepunkt-Ebene.
+
+**Ergebnis (Stand 11.07.2026):** 317 eindeutige Göttinger Ladepunkte mit vollständigen Stammdaten (chargecloud 246, Eco-Movement 38, EnBW 13, HH Energienetz 12, Tesla 8) — mehr als die 192 BNetzA-Registereinträge, was die Register-Lücke aus E5 nochmals bestätigt.
+
+## E7 — 11.07.2026: Befund Delta-Feeds — Kennzahlen als beobachtete Untergrenzen
+
+**Befund:** Bei der Umsetzung von E6 zeigte die Strukturanalyse der dynamischen Feeds, dass alle Anbieter **Delta-Publikationen** liefern, keine Vollabbilder: Ein Snapshot enthält nur die Ladepunkte, deren Status sich seit der letzten Publikation des Anbieters geändert hat. Extrembeispiel Tesla: exakt 1 Ladepunkt pro Snapshot (bundesweit); EnBW 2–40; chargecloud 4–54. Beim 30-Minuten-Abrufraster des Crawlers gehen damit alle Statusänderungen verloren, die zwischen zwei Abrufen publiziert und wieder überschrieben wurden.
+
+**Konsequenzen für die Methodik:**
+1. **Zeitreihen-Rekonstruktion statt Snapshot-Ablesen:** Eine Belegungszeitreihe entsteht durch Sammeln aller beobachteten Statusänderungen (dedupliziert über Ladepunkt + Änderungszeitpunkt + Status); zwischen zwei Beobachtungen gilt der letzte Status als fortbestehend. Das Feld `lastUpdated` der Anbieter liefert dabei den echten Änderungszeitpunkt — genauer als das Abrufraster.
+2. **Plausibilitätsgrenze 12 h:** Verpasste Zwischen-Updates erzeugen Schein-Ladevorgänge von mehreren Tagen Dauer (61 % der segmentierten Events > 12 h). Events über 12 h werden als unplausibel markiert und fließen nicht in die Kennzahlen ein; sie bleiben im Event-Export gekennzeichnet erhalten. 12 h decken auch lange Übernacht-AC-Ladungen ab.
+3. **Alle Kennzahlen sind Untergrenzen:** Occupancy Rate und Ladevorgang-Zahlen beziffern die *beobachtete* Nutzung, nicht die tatsächliche. Diese Einschränkung ist gegenüber dem Praxispartner und in der Arbeit explizit auszuweisen — sie ist zugleich ein eigenständiges Datenqualitäts-Ergebnis: Der amtliche Datenkanal ist für Auslastungsanalysen nur mit hoher Abruffrequenz brauchbar, was Ressourcenfragen kleiner Kommunen direkt berührt (vgl. Interview Block A: Einzelperson ohne IT-Team).
+4. **Tesla-Totalausfall als Beleg:** Für die 8 Göttinger Tesla-Ladepunkte wurde im gesamten Zeitraum keine einzige Statusänderung erfasst — bei 1 Punkt pro Delta-Publikation ist die Trefferwahrscheinlichkeit im 30-Minuten-Raster praktisch null. Abhilfe wäre nur eine deutlich höhere Abruffrequenz.
+
+**Ergebnis (Stand 11.07.2026, Beobachtungsfenster 12.06.–11.07.):** 456 eindeutige Statusänderungen auf 122 von 317 Ladepunkten; 49 segmentierte Ladevorgänge, davon 19 plausibel (Ø 359 min, Median 338 min — konsistent mit 22-kW-AC-Laden). Aktivste Standorte: Salinenweg (TEAG), Große Breite (Kaufland), Bahnhofsplatz (Allego) — plausible Alltagsorte.
+
+**Abgeleitete Maßnahme (umgesetzt am 11.07.2026):** Erhöhung der Abruffrequenz der dynamischen Feeds von 30 auf 5 Minuten (Crontab von `*/30` auf `*/5` umgestellt; die statischen Feeds bleiben bei monatlichem Abruf). Abwägung:
+- *Kosten:* Die dynamischen Snapshots sind klein (8–530 KB pro Anbieter); der Mehrbedarf von ca. 5 GB/Monat ist auf der VM (61 GB frei) unkritisch. Ein Abruf-Durchlauf dauert ~1 Minute und kollidiert damit nicht mit dem 5-Minuten-Takt; die 10-Sekunden-Pause zwischen den Mobilithek-Abrufen bleibt bestehen, die Last für die Plattform steigt also nur durch häufigere kleine Abrufe.
+- *Nutzen:* Sechsfache Abtastrate = sechsfache Chance, eine Delta-Publikation zu erwischen, bevor die nächste sie ersetzt. Das Verlustproblem wird dadurch verringert, nicht beseitigt (Anbieter können häufiger publizieren als alle 5 Minuten) — die Kennzahlen bleiben methodisch Untergrenzen, aber mit deutlich dichterer Beobachtung.
+- *Konsequenz für die Auswertung:* Das Beobachtungsfenster zerfällt in zwei Phasen unterschiedlicher Dichte (12.06.–11.07. im 30-Minuten-Raster, ab 11.07. im 5-Minuten-Raster). Bei Auswertungen über den Gesamtzeitraum ist das auszuweisen; der Vorher-Nachher-Vergleich der Beobachtungsdichte ist zugleich ein empirischer Beleg für den Frequenz-Effekt.
