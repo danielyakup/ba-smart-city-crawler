@@ -77,10 +77,10 @@ from requests_pkcs12 import Pkcs12Adapter
 
 ```python
 CERT_FILE = "certificate.p12"
-CERT_PASSWORD = os.getenv("MOBILITHEK_CERT_PASSWORD", "!Dh6J5c5gaRj")
+CERT_PASSWORD = _load_cert_password()
 ```
 
-Die Mobilithek lässt nicht jeden rein: Man muss sich mit einem **Zertifikat** ausweisen (vergleichbar mit einem digitalen Dienstausweis). `os.getenv(...)` versucht, das Passwort aus den Systemeinstellungen zu lesen; falls es dort nicht hinterlegt ist, nimmt es den zweiten Wert als Notlösung.
+Die Mobilithek lässt nicht jeden rein: Man muss sich mit einem **Zertifikat** ausweisen (vergleichbar mit einem digitalen Dienstausweis). `_load_cert_password()` liest das Passwort zuerst aus der Umgebungsvariable `MOBILITHEK_CERT_PASSWORD` (gesetzt in Crontab und `~/.bashrc`); falls die nicht gesetzt ist, aus einer lokalen, nicht versionierten `.env`-Datei im Projektordner. Bewusst **kein** Passwort direkt im Code — das würde bei jedem `git push` mit ins Repository wandern.
 
 ```python
 SUBSCRIPTIONS = { "EnBW_dyn": "983100920677924864", ... }

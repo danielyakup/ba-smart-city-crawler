@@ -30,7 +30,7 @@ venv/bin/python berechne_kennzahlen.py   # Ladevorgänge + Occupancy-Kennzahlen
 venv/bin/streamlit run dashboard.py
 ```
 
-Es gibt keine Tests und keinen Linter. Authentifizierung: `certificate.p12` (PKCS12-Klientzertifikat, gitignored) + Passwort aus `MOBILITHEK_CERT_PASSWORD` (Fallback ist in `main.py` hartkodiert).
+Es gibt keine Tests und keinen Linter. Authentifizierung: `certificate.p12` (PKCS12-Klientzertifikat, gitignored) + Passwort aus `MOBILITHEK_CERT_PASSWORD` — Umgebungsvariable (gesetzt in Crontab und `~/.bashrc`) mit Fallback auf eine lokale, gitignored `.env`-Datei im Projektroot; kein Fallback-Wert im Code.
 
 ## Architektur
 

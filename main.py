@@ -10,9 +10,27 @@ from requests_pkcs12 import Pkcs12Adapter
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # --- KONFIGURATION ---
-CERT_FILE = "certificate.p12"  
-# Holt das Passwort aus den Systemeinstellungen, falls nicht vorhanden, nutzt es den Fallback
-CERT_PASSWORD = os.getenv("MOBILITHEK_CERT_PASSWORD", "!Dh6J5c5gaRj") 
+CERT_FILE = "certificate.p12"
+
+def _load_cert_password():
+    """Liest das Zertifikatspasswort aus der Umgebungsvariable, sonst aus der
+    lokalen, nicht versionierten .env-Datei (Fallback für nicht-interaktive
+    Shells, z. B. Cron oder Skript-Ausführung ohne geladenes .bashrc)."""
+    password = os.environ.get("MOBILITHEK_CERT_PASSWORD")
+    if password:
+        return password
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.exists(env_path):
+        with open(env_path, encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("MOBILITHEK_CERT_PASSWORD="):
+                    return line.strip().split("=", 1)[1]
+    raise RuntimeError(
+        "MOBILITHEK_CERT_PASSWORD ist weder als Umgebungsvariable noch in .env gesetzt."
+    )
+
+# Passwort ausschließlich aus Umgebungsvariable oder lokaler .env-Datei, kein Fallback im Code (Secret-Hygiene)
+CERT_PASSWORD = _load_cert_password()
 
 # Bereinigte Liste ohne die 0-Treffer-Leichen von m8mit
 SUBSCRIPTIONS = {
