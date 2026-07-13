@@ -124,3 +124,25 @@ Die Trennung folgt der Interview-Aussage, dass die Verwaltung sowohl fertige Ken
 - *Kosten:* Die dynamischen Snapshots sind klein (8–530 KB pro Anbieter); der Mehrbedarf von ca. 5 GB/Monat ist auf der VM (61 GB frei) unkritisch. Ein Abruf-Durchlauf dauert ~1 Minute und kollidiert damit nicht mit dem 5-Minuten-Takt; die 10-Sekunden-Pause zwischen den Mobilithek-Abrufen bleibt bestehen, die Last für die Plattform steigt also nur durch häufigere kleine Abrufe.
 - *Nutzen:* Sechsfache Abtastrate = sechsfache Chance, eine Delta-Publikation zu erwischen, bevor die nächste sie ersetzt. Das Verlustproblem wird dadurch verringert, nicht beseitigt (Anbieter können häufiger publizieren als alle 5 Minuten) — die Kennzahlen bleiben methodisch Untergrenzen, aber mit deutlich dichterer Beobachtung.
 - *Konsequenz für die Auswertung:* Das Beobachtungsfenster zerfällt in zwei Phasen unterschiedlicher Dichte (12.06.–11.07. im 30-Minuten-Raster, ab 11.07. im 5-Minuten-Raster). Bei Auswertungen über den Gesamtzeitraum ist das auszuweisen; der Vorher-Nachher-Vergleich der Beobachtungsdichte ist zugleich ein empirischer Beleg für den Frequenz-Effekt.
+
+## E8 — 13.07.2026: Erste Befunde nach Umstellung auf 5-Minuten-Raster
+
+**Anlass:** Zwei Tage nach der in E7 beschlossenen Umstellung wurde die Export-Pipeline neu ausgeführt (`extract_zeitreihe.py` → `berechne_kennzahlen.py`), um zu prüfen, ob die dichtere Abtastung tatsächlich mehr vollständige Ladevorgänge einfängt.
+
+**Befund 1 — Frequenzeffekt bestätigt:** Statusänderungen stiegen von 456 auf 576 (betroffene Ladepunkte 122 → 161 von 317), segmentierte Ladevorgänge von 49 auf 65. Seit Umstellung (11.07., 22:55 Uhr) sind bereits 11 vollständige Ladevorgänge hinzugekommen — verteilt über `ecomovement` **und** erstmals auch `chargecloud` (zuvor: kein einziger vollständiger chargecloud-Zyklus im gesamten 30-Minuten-Zeitraum). Das stützt die E7-These, dass die Trefferwahrscheinlichkeit für Delta-Publikationen mit der Abtastrate skaliert.
+
+**Befund 2 — Plausibilitätsgrenze bleibt auch im 5-Minuten-Raster relevant:** Von den 11 neuen Ladevorgängen liegen weiterhin 2 (beide `ecomovement`) über der 12-h-Grenze (18 h bzw. 21,6 h). Das spricht dagegen, den Plausibilitätscheck aus E7 nach der Frequenzerhöhung zu streichen: Die Ursache ist hier vermutlich nicht (nur) unser Abrufraster, sondern eine anbieterseitig verzögerte Aktualisierung des `lastUpdated`-Felds bei `ecomovement` — ein Datenqualitätsmerkmal des Anbieters, das auch dichteres Crawling nicht beheben kann. Empfehlung: Grenze beibehalten, aber am Monatsende (siehe unten) prüfen, ob sich die Quote unplausibler Events in der dichten Phase gegenüber der 30-Minuten-Phase signifikant verringert hat.
+
+**Befund 3 — Meldequote schwankt stark zwischen Anbietern (nicht nur Frequenz-Artefakt):** Von 317 Ladepunkten haben 156 seit Beginn der Aufzeichnung (12.06.) keine einzige Statusänderung gemeldet. Aufschlüsselung nach Anbieter (Anteil der Ladepunkte mit ≥ 1 gemeldeter Änderung):
+
+| Anbieter | Ladepunkte gesamt | mind. 1 Meldung | Anteil | Feed-Historie seit |
+|---|---|---|---|---|
+| ecomovement | 38 | 38 | 100 % | 12.06. |
+| hhenergienetz | 12 | 12 | 100 % | 05.06. |
+| chargecloud | 246 | 104 | 42 % | 25.06. (kürzeres Beobachtungsfenster) |
+| EnBW | 13 | 4 | 31 % | 05.06. |
+| Tesla | 8 | 2 | 25 % | 05.06. |
+
+Ein Teil der Differenz erklärt sich durch unterschiedliche Subscription-Starts (chargecloud erst ab 25.06. abonniert, ~13 Tage kürzeres Fenster als der Rest). Das erklärt aber nicht, warum EnBW und Tesla trotz gleich langer Feed-Historie wie hhenergienetz (beide seit 05.06.) so viel seltener melden als hhenergienetz (100 %) bei ähnlicher oder kleinerer Flottengröße. Da alle Treffer auf Ladepunkt-Ebene matchen (kein Hinweis auf ein Matching-Problem), wird dies vorläufig als reales Nutzungsmuster gewertet (EnBW/Tesla-Standorte in Göttingen ggf. seltener frequentiert) und nicht als Parsing-Fehler — eine abschließende Bewertung erfolgt mit mehr Datenbasis Ende Juli.
+
+**Offen — Wiedervorlage Ende Juli:** Sobald ein voller Monat im 5-Minuten-Raster vorliegt, erneut prüfen: (1) Anteil unplausibler Events in der dichten vs. sparsamen Phase (quantifiziert den Frequenz-Effekt für Kap. 5), (2) ob sich die Meldequote von EnBW/Tesla mit mehr Beobachtungszeit der von hhenergienetz annähert oder strukturell niedrig bleibt.
