@@ -88,6 +88,8 @@ SUBSCRIPTIONS = { "EnBW_dyn": "983100920677924864", ... }
 
 Unser „Einkaufszettel": Links steht unser selbstgewählter Spitzname für den Datenstrom, rechts die offizielle Abo-Nummer bei der Mobilithek. Pro Anbieter gibt es zwei Abos: **`stat`** = Stammdaten (wo steht die Säule, wie viel Leistung — ändert sich selten) und **`dyn`** = Belegungsdaten (frei/besetzt — ändert sich minütlich).
 
+Aktuell sind fünf Anbieter abonniert (zehn Abos): EnBW, Tesla, HH Energienetz, Eco-Movement und — seit 25.06.2026 — **chargecloud GmbH**, deren Feed erstmals auch die Stadtwerke Göttingen enthält (`DE*GOE*`-IDs, siehe `ENTSCHEIDUNGSLOG.md` E5). Die früher abonnierten Smartlab-Feeds wurden entfernt, weil sie über alle Durchläufe hinweg null auswertbare Göttingen-Standorte lieferten (E2) — die alten Rohdateien in `data/` bleiben trotzdem als Beleg für die Thesis erhalten.
+
 ### Schritt 3: Die Funktion `fetch_data` — ein einzelner Download (Zeilen 29–63)
 
 Diese Funktion ist das Arbeitspferd. Sie wird später für jedes Abo einmal aufgerufen und macht fünf Dinge:
@@ -217,11 +219,13 @@ coverage = (len(matched_total) / total_points) * 100
 ```
 Die seltsamen Zeichen `:<28` und `:>11` sind nur Formatierung: „linksbündig auf 28 Zeichen auffüllen" bzw. „rechtsbündig auf 11" — so entsteht die saubere Tabelle im Terminal. `len(...)` zählt die Elemente eines Sets.
 
-Das Skript zählt die beiden Match-Arten **getrennt**: Pro Anbieter und insgesamt wird ausgewiesen, wie viele Treffer hart über die EVSE-ID belegt sind und wie viele über die Göttingen-Adresse kamen. Zusätzlich zeigt die Spalte „Goe-Sites", wie viele Standorte mit Göttinger Adresse der Anbieter überhaupt führt — eine wichtige Plausibilitätskontrolle. Aktueller Stand (Datensatz-Matching): **26,04 %** Gesamtabdeckung (50 von 192), davon 3 Punkte hart per ID belegt. Ein Punkt gilt als „hart", sobald ihn mindestens eine Anbieter-Datei per ID matcht — auch wenn andere Dateien ihn nur über die Adresse finden.
+Das Skript zählt die beiden Match-Arten **getrennt**: Pro Anbieter und insgesamt wird ausgewiesen, wie viele Treffer hart über die EVSE-ID belegt sind und wie viele über die Göttingen-Adresse kamen. Zusätzlich zeigt die Spalte „Goe-Sites", wie viele Standorte mit Göttinger Adresse der Anbieter überhaupt führt — eine wichtige Plausibilitätskontrolle. Ein Punkt gilt als „hart", sobald ihn mindestens eine Anbieter-Datei per ID matcht — auch wenn andere Dateien ihn nur über die Adresse finden.
+
+Aktueller Stand (Datensatz-Matching, nach Aufnahme von chargecloud GmbH, siehe `ENTSCHEIDUNGSLOG.md` E5): **84,9 %** Gesamtabdeckung (163 von 192), davon 26,6 % (51 Punkte) hart per EVSE-ID belegt und 58,3 % (112 Punkte) nur über die Adress-Heuristik. Vor E5 (nur EnBW, Tesla, HH Energienetz, Eco-Movement) lag der Wert bei 26,04 % (50/192, E4) — der Sprung kam durch chargecloud, dessen Feed erstmals auch die Stadtwerke Göttingen (`DE*GOE*`-IDs) enthält.
 
 ### Eine ehrliche Einordnung der Methode
 
-Das Datensatz-Matching hat die größte Schwäche der alten Volltext-Methode beseitigt (Scheintreffer durch gleichnamige Straßen in anderen Städten). Restliche Unschärfen, die als Limitation in die Arbeit gehören, sind in `ENTSCHEIDUNGSLOG.md` (E4) dokumentiert — die wichtigste: Stehen mehrere registrierte Ladeeinrichtungen in derselben Göttinger Straße, kann ein einziger Anbieter-Standort sie alle als „abgedeckt" markieren. Die 26,04 % sind daher eher eine obere Schätzung.
+Das Datensatz-Matching hat die größte Schwäche der alten Volltext-Methode beseitigt (Scheintreffer durch gleichnamige Straßen in anderen Städten). Restliche Unschärfen, die als Limitation in die Arbeit gehören, sind in `ENTSCHEIDUNGSLOG.md` (E4, E5) dokumentiert — die wichtigste: Stehen mehrere registrierte Ladeeinrichtungen in derselben Göttinger Straße, kann ein einziger Anbieter-Standort sie alle als „abgedeckt" markieren. Die 84,9 % sind daher eher eine obere Schätzung. Zudem trägt die BNetzA für 121 der 192 Göttinger Ladeeinrichtungen (63 %) gar keine EVSE-ID im Register ein — diese Punkte sind strukturell nur über die Adress-Heuristik erreichbar, die maximal erreichbare ID-Trefferquote liegt daher bei ~37 %.
 
 ---
 
@@ -243,7 +247,9 @@ Ergebnis: `stammdaten_goettingen.csv` mit 317 Ladepunkten.
 
 Hier steckt die wichtigste Erkenntnis der ganzen Auswertung: Die dynamischen Feeds sind **Delta-Feeds**. Ein Snapshot enthält *nicht* den Zustand aller Ladepunkte, sondern nur die, deren Status sich gerade geändert hat (Tesla: genau einer pro Snapshot — bundesweit!). Man kann den Status also nicht einfach „ablesen", sondern muss alle beobachteten Änderungen einsammeln und davon ausgehen, dass ein Status so lange gilt, bis die nächste Änderung beobachtet wird.
 
-Das Skript geht alle ~3.900 dynamischen Snapshots durch, behält nur Updates, deren ID zu einem Göttinger Ladepunkt aus Skript 1 passt, und **dedupliziert**: Dieselbe Änderung (gleicher Punkt, gleicher Zeitpunkt, gleicher Status) kann in mehreren Abrufen stecken, zählt aber nur einmal. Praktischer Nebengewinn: Das Anbieter-Feld `lastUpdated` verrät den *echten* Änderungszeitpunkt — genauer als unser 30-Minuten-Abrufraster.
+Das Skript geht alle dynamischen Snapshots durch (mehrere Tausend, Tendenz stark wachsend — Stand 14.07.2026 über 8.000 Dateien), behält nur Updates, deren ID zu einem Göttinger Ladepunkt aus Skript 1 passt, und **dedupliziert**: Dieselbe Änderung (gleicher Punkt, gleicher Zeitpunkt, gleicher Status) kann in mehreren Abrufen stecken, zählt aber nur einmal. Praktischer Nebengewinn: Das Anbieter-Feld `lastUpdated` verrät den *echten* Änderungszeitpunkt — genauer als unser Abrufraster.
+
+**Das Abrufraster wurde zwischenzeitlich verschärft:** Anfangs liefen die dynamischen Feeds im 30-Minuten-Takt. Nach dem in E7 dokumentierten Befund, dass Delta-Feeds bei diesem Raster reihenweise Statusänderungen verpassen (Tesla z. B. 0 von 8 Göttinger Ladepunkten je erfasst), wurde die Crontab am 11.07.2026 auf ein 5-Minuten-Raster umgestellt. Der Effekt ist messbar: Statusänderungen stiegen von 456 auf inzwischen 576, betroffene Ladepunkte von 122 auf 161 von 317 (siehe `ENTSCHEIDUNGSLOG.md` E7/E8). Das Beobachtungsfenster zerfällt dadurch in zwei Phasen unterschiedlicher Dichte — bei Auswertungen über den Gesamtzeitraum ist das auszuweisen.
 
 Ergebnis: `statusaenderungen_goettingen.csv` — eine Zeile pro beobachteter Statusänderung.
 
@@ -251,9 +257,13 @@ Ergebnis: `statusaenderungen_goettingen.csv` — eine Zeile pro beobachteter Sta
 
 Segmentiert aus der Zeitreihe **Ladevorgänge** (Status wechselt auf `charging`/`occupied` → Beginn; nächste Änderung weg davon → Ende) und aggregiert daraus je Ladepunkt die Interview-Kennzahlen: Occupancy Rate, Anzahl Ladevorgänge, mittlere Dauer, Wochenend- und Nachtanteil.
 
-Die wichtigste Zeile ist die **Plausibilitätsgrenze von 12 Stunden**: Wenn zwischen zwei Abrufen Updates verloren gehen (Delta-Problem!), sieht ein Ladepunkt tagelang „belegt" aus. Solche Schein-Ladevorgänge werden markiert und fließen nicht in die Kennzahlen ein — sie bleiben aber im Export sichtbar, damit nichts stillschweigend verschwindet. Deshalb gilt für alle Kennzahlen: Es sind **beobachtete Untergrenzen** der echten Nutzung, keine vollständige Zählung (ausführlich: ENTSCHEIDUNGSLOG E7).
+Die wichtigste Zeile ist die **Plausibilitätsgrenze von 12 Stunden**: Wenn zwischen zwei Abrufen Updates verloren gehen (Delta-Problem!), sieht ein Ladepunkt tagelang „belegt" aus. Solche Schein-Ladevorgänge werden markiert und fließen nicht in die Kennzahlen ein — sie bleiben aber im Export sichtbar, damit nichts stillschweigend verschwindet. Deshalb gilt für alle Kennzahlen: Es sind **beobachtete Untergrenzen** der echten Nutzung, keine vollständige Zählung (ausführlich: ENTSCHEIDUNGSLOG E7). Die Grenze bleibt auch nach der Umstellung auf das 5-Minuten-Raster relevant: In E8 lagen zwei neu hinzugekommene Ladevorgänge trotzdem über 12 h — vermutlich, weil ein Anbieter (Eco-Movement) `lastUpdated` verzögert aktualisiert, nicht wegen unseres Abrufrasters.
 
-Ergebnis: `ladevorgaenge_goettingen.csv` (ein Ladevorgang pro Zeile) und `kennzahlen_ladepunkte.csv` (eine Zeile pro Ladepunkt, inklusive Stammdaten — auch für Punkte ganz ohne beobachtete Ladevorgänge, denn „nichts beobachtet" ist ein Befund, kein Loch).
+Ergebnis: `ladevorgaenge_goettingen.csv` (ein Ladevorgang pro Zeile) und `kennzahlen_ladepunkte.csv` (eine Zeile pro Ladepunkt, inklusive Stammdaten — auch für Punkte ganz ohne beobachtete Ladevorgänge, denn „nichts beobachtet" ist ein Befund, kein Loch). Stand 13.07.2026 (5-Minuten-Raster, seit 12.06.): 65 segmentierte Ladevorgänge, davon 28 als plausibel (≤ 12 h) markiert.
+
+**Ergänzung (ENTSCHEIDUNGSLOG E10): Verfügbarkeit getrennt von Ausfallzeit.** Bisher galt implizit „nicht belegt = frei" — dabei kann ein Ladepunkt auch schlicht kaputt sein (`outOfOrder`/`inoperative`/`outOfService`). Das Skript segmentiert daher jetzt **zusätzlich** Außer-Betrieb-Phasen (dieselbe Segmentierungslogik wie bei Ladevorgängen, ausgelagert in die Hilfsfunktion `segmentiere_intervalle`, nur mit einer anderen Status-Menge). Wichtiger Unterschied: Für Ladevorgänge gilt die 12h-Plausibilitätsgrenze (reale Ladungen dauern selten länger), für Ausfälle **nicht** — ein defekter Ladepunkt kann durchaus tagelang außer Betrieb bleiben, das ist plausibel und kein Zeichen für verpasste Updates.
+
+Drei neue Spalten in `kennzahlen_ladepunkte.csv`: `ausser_betrieb_stunden` (beobachtete Ausfallzeit), `ausfallquote_prozent` (Ausfallzeit / Beobachtungsfenster, analog zur Occupancy Rate) und `verfuegbar_prozent` (Rest des Fensters: weder belegt noch außer Betrieb). Die Ausfall-Events selbst landen in einer neuen Datei `ausfaelle_goettingen.csv` (Event-Ebene, analog zu `ladevorgaenge_goettingen.csv`). Erster Befund (13.07.2026): 20 beobachtete Ausfallzeiten auf 10 Ladepunkten — ein Kaufland-Standort war rechnerisch 67 % des Beobachtungsfensters außer Betrieb, was ohne diese Trennung als „98 % frei verfügbar" missverständlich gewesen wäre.
 
 ### Obendrauf: `dashboard.py` — die Oberfläche für die Stadtverwaltung
 

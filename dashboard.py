@@ -27,12 +27,15 @@ st.set_page_config(page_title="Ladeinfrastruktur Göttingen", page_icon="🔌", 
 
 @st.cache_data
 def lade_daten():
-    """Liest die drei Export-Ebenen der Pipeline ein."""
+    """Liest die Export-Ebenen der Pipeline ein."""
     stammdaten = pd.read_csv(
         os.path.join(ORDNER, "stammdaten_goettingen.csv"), sep=";", encoding="utf-8-sig"
     )
     events = pd.read_csv(
         os.path.join(ORDNER, "ladevorgaenge_goettingen.csv"), sep=";", encoding="utf-8-sig"
+    )
+    ausfaelle = pd.read_csv(
+        os.path.join(ORDNER, "ausfaelle_goettingen.csv"), sep=";", encoding="utf-8-sig"
     )
     kennzahlen = pd.read_csv(
         os.path.join(ORDNER, "kennzahlen_ladepunkte.csv"), sep=";", encoding="utf-8-sig"
@@ -42,12 +45,13 @@ def lade_daten():
     )
     # Zeitstempel für Anzeige und Diagramme in lokale Zeit umrechnen
     # (format="mixed": die CSV enthält Zeitstempel mit und ohne Millisekunden)
-    for spalte in ("start", "ende"):
-        events[spalte] = pd.to_datetime(events[spalte], utc=True, format="mixed", errors="coerce")
-        events[spalte + "_lokal"] = events[spalte].dt.tz_convert("Europe/Berlin")
+    for df in (events, ausfaelle):
+        for spalte in ("start", "ende"):
+            df[spalte] = pd.to_datetime(df[spalte], utc=True, format="mixed", errors="coerce")
+            df[spalte + "_lokal"] = df[spalte].dt.tz_convert("Europe/Berlin")
     abruf = pd.to_datetime(zeitreihe["erfasst_am"], utc=True, errors="coerce")
     fenster = (abruf.min(), abruf.max())
-    return stammdaten, events, kennzahlen, zeitreihe, fenster
+    return stammdaten, events, ausfaelle, kennzahlen, zeitreihe, fenster
 
 
 def csv_bytes(df):
@@ -55,21 +59,22 @@ def csv_bytes(df):
     return df.to_csv(sep=";", index=False).encode("utf-8-sig")
 
 
-def excel_bytes(stammdaten, events, kennzahlen):
-    """Alle drei Ebenen als eine Excel-Datei mit je einem Blatt."""
+def excel_bytes(stammdaten, events, ausfaelle, kennzahlen):
+    """Alle Ebenen als eine Excel-Datei mit je einem Blatt."""
     puffer = io.BytesIO()
     with pd.ExcelWriter(puffer, engine="openpyxl") as writer:
         stammdaten.to_excel(writer, sheet_name="Stammdaten", index=False)
-        ev = events.copy()
-        # Excel kann keine Zeitzonen-Zeitstempel speichern
-        for spalte in ("start", "ende", "start_lokal", "ende_lokal"):
-            ev[spalte] = ev[spalte].dt.tz_localize(None)
-        ev.to_excel(writer, sheet_name="Ladevorgänge", index=False)
+        for name, df in (("Ladevorgänge", events), ("Ausfälle", ausfaelle)):
+            df = df.copy()
+            # Excel kann keine Zeitzonen-Zeitstempel speichern
+            for spalte in ("start", "ende", "start_lokal", "ende_lokal"):
+                df[spalte] = df[spalte].dt.tz_localize(None)
+            df.to_excel(writer, sheet_name=name, index=False)
         kennzahlen.to_excel(writer, sheet_name="Kennzahlen", index=False)
     return puffer.getvalue()
 
 
-stammdaten, events, kennzahlen, zeitreihe, fenster = lade_daten()
+stammdaten, events, ausfaelle, kennzahlen, zeitreihe, fenster = lade_daten()
 plausible = events[events["plausibel"]]
 
 # --- Kopfbereich ---------------------------------------------------------------
@@ -83,17 +88,25 @@ st.info(
     "**Lesehinweis:** Die Anbieter melden nur Statusänderungen (Delta-Feeds). "
     "Alle Kennzahlen sind daher **beobachtete Untergrenzen** der tatsächlichen "
     "Nutzung, keine vollständige Zählung. Ladevorgänge über 12 h sind als "
-    "unplausibel markiert und fließen nicht in die Kennzahlen ein.",
+    "unplausibel markiert und fließen nicht in die Kennzahlen ein. "
+    "**Nicht belegt heißt nicht automatisch verfügbar:** Zeiten mit Status "
+    "„außer Betrieb“ werden getrennt als Ausfallquote ausgewiesen und zählen "
+    "weder zur Occupancy Rate noch zur Verfügbarkeit.",
     icon="ℹ️",
 )
 
 # --- Gesamtübersicht -------------------------------------------------------------
-spalte1, spalte2, spalte3, spalte4 = st.columns(4)
+spalte1, spalte2, spalte3, spalte4, spalte5 = st.columns(5)
 spalte1.metric("Ladepunkte (Stammdaten)", len(stammdaten))
 spalte2.metric("Standorte", stammdaten["strasse"].nunique())
 spalte3.metric("Beobachtete Ladevorgänge", len(plausible))
 if len(plausible):
     spalte4.metric("Ø Ladedauer", f"{plausible['dauer_minuten'].mean():.0f} min")
+spalte5.metric(
+    "Beobachtete Ausfälle",
+    len(ausfaelle),
+    help="Ladepunkte mit beobachteter Außer-Betrieb-Phase im Zeitraum",
+)
 
 # --- Stationsauswahl (Interview: Kennzahlen beim Anklicken sichtbar) -------------
 st.divider()
@@ -115,23 +128,31 @@ auswahl = st.selectbox(
 if auswahl == "— Alle Standorte —":
     punkte = kennzahlen
     events_auswahl = plausible
+    ausfaelle_auswahl = ausfaelle
 else:
     punkte = kennzahlen[kennzahlen["strasse"] == auswahl]
     events_auswahl = plausible[plausible["evse_id"].isin(punkte["evse_id"])]
+    ausfaelle_auswahl = ausfaelle[ausfaelle["evse_id"].isin(punkte["evse_id"])]
 
 # Kennzahlen der Auswahl direkt anzeigen
-spalte1, spalte2, spalte3, spalte4 = st.columns(4)
+spalte1, spalte2, spalte3, spalte4, spalte5 = st.columns(5)
 spalte1.metric("Ladepunkte", len(punkte))
 spalte2.metric("Ladevorgänge", int(punkte["ladevorgaenge"].sum()))
 spalte3.metric("Belegungsstunden", f"{punkte['belegt_stunden'].sum():.1f} h")
 if len(events_auswahl):
     spalte4.metric("Ø Ladedauer", f"{events_auswahl['dauer_minuten'].mean():.0f} min")
+spalte5.metric(
+    "Ø Verfügbarkeit",
+    f"{punkte['verfuegbar_prozent'].mean():.1f} %" if len(punkte) else "–",
+    help="Anteil des Beobachtungsfensters, der weder belegt noch außer Betrieb war",
+)
 
 st.dataframe(
     punkte[[
         "evse_id", "strasse", "betreiber", "strom_art", "max_leistung_kw",
         "ladevorgaenge", "belegt_stunden", "mittlere_dauer_min",
-        "occupancy_rate_prozent",
+        "occupancy_rate_prozent", "ausser_betrieb_stunden",
+        "ausfallquote_prozent", "verfuegbar_prozent",
     ]]
     # Aktivste Ladepunkte zuerst — die interessieren die Verwaltung am meisten
     .sort_values("ladevorgaenge", ascending=False)
@@ -141,6 +162,9 @@ st.dataframe(
         "ladevorgaenge": "Ladevorgänge", "belegt_stunden": "Belegt (h)",
         "mittlere_dauer_min": "Ø Dauer (min)",
         "occupancy_rate_prozent": "Occupancy (%)",
+        "ausser_betrieb_stunden": "Außer Betrieb (h)",
+        "ausfallquote_prozent": "Ausfallquote (%)",
+        "verfuegbar_prozent": "Verfügbar (%)",
     }),
     width='stretch',
     hide_index=True,
@@ -150,6 +174,9 @@ st.dataframe(
         "Ø Dauer (min)": st.column_config.NumberColumn(format="%.0f min"),
         "Occupancy (%)": st.column_config.NumberColumn(format="%.2f %%"),
         "max. kW": st.column_config.NumberColumn(format="%.0f kW"),
+        "Außer Betrieb (h)": st.column_config.NumberColumn(format="%.1f h"),
+        "Ausfallquote (%)": st.column_config.NumberColumn(format="%.2f %%"),
+        "Verfügbar (%)": st.column_config.NumberColumn(format="%.1f %%"),
     },
 )
 
@@ -185,7 +212,7 @@ st.caption(
     "bzw. eine Excel-Arbeitsmappe mit allen drei Ebenen."
 )
 
-export1, export2, export3, export4 = st.columns(4)
+export1, export2, export3, export4, export5 = st.columns(5)
 export1.download_button(
     "Stammdaten (CSV)", csv_bytes(stammdaten),
     "stammdaten_goettingen.csv", "text/csv",
@@ -197,15 +224,20 @@ export2.download_button(
     help="Ein beobachteter Ladevorgang pro Zeile: Start, Ende, Dauer",
 )
 export3.download_button(
-    "Kennzahlen (CSV)", csv_bytes(kennzahlen),
-    "kennzahlen_ladepunkte.csv", "text/csv",
-    help="Occupancy Rate, Ladevorgänge, Ø-Dauer je Ladepunkt",
+    "Ausfälle (CSV)", csv_bytes(ausfaelle.drop(columns=["start_lokal", "ende_lokal"])),
+    "ausfaelle_goettingen.csv", "text/csv",
+    help="Eine beobachtete Außer-Betrieb-Phase pro Zeile: Start, Ende, Dauer",
 )
 export4.download_button(
-    "Gesamtpaket (Excel)", excel_bytes(stammdaten, events, kennzahlen),
+    "Kennzahlen (CSV)", csv_bytes(kennzahlen),
+    "kennzahlen_ladepunkte.csv", "text/csv",
+    help="Occupancy Rate, Ausfallquote, Verfügbarkeit je Ladepunkt",
+)
+export5.download_button(
+    "Gesamtpaket (Excel)", excel_bytes(stammdaten, events, ausfaelle, kennzahlen),
     "ladeinfrastruktur_goettingen.xlsx",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    help="Alle drei Ebenen als eine Excel-Datei mit drei Blättern",
+    help="Alle Ebenen als eine Excel-Datei mit je einem Blatt",
 )
 
 if auswahl != "— Alle Standorte —":
