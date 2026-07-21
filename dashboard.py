@@ -25,7 +25,7 @@ BLAU = "#2a78d6"
 st.set_page_config(page_title="Ladeinfrastruktur Göttingen", page_icon="🔌", layout="wide")
 
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def lade_daten():
     """Liest die Export-Ebenen der Pipeline ein."""
     stammdaten = pd.read_csv(
