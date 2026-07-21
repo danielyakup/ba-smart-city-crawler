@@ -168,3 +168,47 @@ Ein Teil der Differenz erklärt sich durch unterschiedliche Subscription-Starts 
 **Ergebnis (Stand 14.07.2026):** 20 beobachtete Ausfallzeiten auf 10 von 317 Ladepunkten. Auffälligster Fall: ein Kaufland-Standort mit `ausfallquote_prozent` von 67,3 % über das gesamte Beobachtungsfenster (12.06.–13.07.) — ohne diese Trennung wäre der Punkt mit `occupancy_rate_prozent` ≈ 1,7 % fälschlich als nahezu durchgängig frei verfügbar erschienen.
 
 **Relevanz für die Arbeit:** Dies ist ein eigenständiger Befund für Kapitel 4 (Datenqualität/empirische Ergebnisse) und schärft die Limitationsdiskussion in Kapitel 5: „Occupancy Rate" allein beantwortet nicht die für die Verwaltung relevante Frage nach der *tatsächlichen* Verfügbarkeit der Infrastruktur — Nutzung und Störung müssen getrennt ausgewiesen werden, sonst wird eine kaputte Säule datentechnisch als „gut verfügbar" fehlinterpretiert.
+
+## E11 — 21.07.2026: Tesla-Feed als Beleg für strukturell begrenzte Delta-Publikationen (anbieterseitig, nicht durch Abruffrequenz behebbar)
+
+**Anlass:** Rückfrage vor der Präsentation beim Praxispartner, ob die in E7 dokumentierte Beobachtung „exakt 1 Ladepunkt pro Tesla-Snapshot, bundesweit" angesichts des inzwischen 5-Minuten-Rasters noch plausibel ist — bei einem bundesweiten Anbieter erscheint 1 Änderung pro 5 Minuten zunächst unglaubwürdig gering.
+
+**Verifikation:** Stichprobe von 8 konsekutiven Tesla-dyn-Snapshots vom 21.07.2026, 13:40–14:15 Uhr (5-Minuten-Raster). Jeder einzelne Snapshot enthält exakt 1 `energyInfrastructureSiteStatus`-Eintrag mit exakt 1 `refillPointStatus`, jeweils mit unterschiedlicher EVSE-ID quer über Deutschland verteilt (`E00K2NU`, `E0DLEXM`, `E00144Y`, `E000MHD`, `E001AGX`, `E00I0A5`, `E000DE9`, `E0J07HN`). Zum Vergleich: Der statische Tesla-Feed (`Tesla_stat_20260625_175910.json`) führt 3.928 `aegiElectricChargingPoint`-Stammdatensätze bundesweit. Das dynamische Delta enthält also durchgehend nur 1/3928 der Flotte pro Publikation.
+
+**Interpretation:** Dass bundesweit bei Tesla literal nur alle 5 Minuten ein einziger realer Statuswechsel stattfindet, ist unplausibel. Wahrscheinlicher liefert der Tesla-Feed strukturell (Rate-Limit oder Pagination auf Anbieterseite) nur 1 Datensatz pro Publikationszyklus, unabhängig davon, wie viele Ladepunkte sich tatsächlich geändert haben. Das ist eine wichtige Präzisierung von E7: Bei den meisten Anbietern (chargecloud, Eco-Movement) hilft eine höhere Abruffrequenz nachweislich (E8), weil dort die *Publikationsfrequenz* des Anbieters der limitierende Faktor ist. Bei Tesla dagegen limitiert vermutlich die *Datensatzanzahl pro Publikation* — ein Limit, das durch häufigeres Abfragen nicht umgangen werden kann, da es unabhängig vom Zeitpunkt der Abfrage strukturell nur 1 Datensatz liefert.
+
+**Konsequenz:** Der in E7 Punkt 4 dokumentierte Tesla-Totalausfall (keine einzige Statusänderung für die 8 Göttinger Tesla-Ladepunkte im gesamten Beobachtungszeitraum) ist damit nicht (nur) ein Artefakt zu niedriger Abruffrequenz, sondern zu einem erheblichen Teil ein strukturelles, anbieterseitiges Limit, das eine Kommune mit eigenen Mitteln nicht beheben kann — selbst ein minütlicher Abruf würde die Trefferwahrscheinlichkeit für die 8 Göttinger Punkte unter 3.928 bundesweiten Punkten nur graduell verbessern, nicht grundsätzlich lösen. Für die Limitationsdiskussion in Kapitel 5 ein schärferes Argument als „Abrufrate zu niedrig": Bei manchen Anbietern ist die Datengrundlage strukturell zu dünn, unabhängig vom Ressourceneinsatz der Kommune.
+
+**Nachtrag (siehe E12): Diese Interpretation musste nach Prüfung der Mobilithek-Schnittstellendokumentation korrigiert werden** — die Ursache ist überwiegend clientseitig (fehlender `If-Modified-Since`-Header), nicht anbieterseitig. E11 bleibt als Beleg für die *Beobachtung* (1 Ladepunkt pro Snapshot) stehen, die *Erklärung* dafür ist jedoch E12 zu entnehmen.
+
+## E12 — 21.07.2026: Ursache für „1 Ladepunkt pro Tesla-Snapshot" gefunden — fehlender `If-Modified-Since`-Header, kein Anbieter-Limit
+
+**Anlass:** Im Betreuungsgespräch am 21.07.2026 äußerten die Betreuer Unzufriedenheit mit der geringen Zahl belastbarer Kennzahlen, sahen aber an, dass die Ursache nicht zwingend bei der Methodik liegen muss. Vorschlag: die Mobilithek-Schnittstellendokumentation daraufhin prüfen, ob eine bestimmte Abruffrequenz vorgegeben ist und wie das Verhalten einzelner Anbieter (insbesondere der in E11 beschriebene Tesla-Fall: exakt 1 Ladepunkt pro Delta-Snapshot) zu erklären ist.
+
+**Fund in der technischen Schnittstellenbeschreibung (Version 1.3.2, 07.11.2025, Kapitel 4.8, S. 25; explizit referenziert auch aus Kapitel 6.2.1 „Client Pull HTTPS", dem von `main.py` verwendeten Endpunkt):**
+
+> „Enthält der HTTP Request das Header-Field 'If-Modified-Since' nicht, wird das zuletzt eingelieferte Datenpaket von der Mobilithek ausgeliefert. [...] Im Zusammenhang mit Publikationen, für die Delta-Unterstützung aktiviert ist, können unter Nutzung dieses Headers auch Datennehmer über die PULL-Schnittstellen von der Bandbreitenreduktion profitieren, die durch die Nutzung von Delta-Datenpaketen möglich wird. Hierzu wird der erste PULL Request mit einem Zeitstempel weit in der Vergangenheit gestartet. Diese Anfrage liefert das älteste Datenpaket aus dem Datenpuffer aus, das per Definition ein vollständiges Datenpaket ist [...]. In den folgenden PULL Requests wird dann jeweils der Zeitstempel aus dem Header-Element 'Last-Modified' [der vorherigen Antwort] verwendet."
+
+Ergänzend aus Kapitel 4.3: Mobilithek speichert bei aktivierter Delta-Unterstützung **mehrere** Delta-Pakete „in der Reihenfolge ihres Empfangs" in einem Paketpuffer je Subskription; Datennehmer können „auf alle existierenden Datenpakete [...] in der Reihenfolge der Anlieferung zugreifen" — aber nur über den beschriebenen Header-Mechanismus. Ohne ihn liefert jeder Aufruf ausschließlich das **jeweils neueste** Paket, unabhängig davon, wie viele ältere Delta-Pakete seit dem letzten Abruf im Puffer aufgelaufen sind.
+
+**`main.py` (`fetch_data()`) setzt diesen Header bislang nicht** — der Request besteht nur aus `User-Agent`, `Accept`, `Connection`.
+
+**Empirische Verifikation (21.07.2026, Live-Test gegen die Tesla-Subskription, exakt die von `main.py` verwendete URL `.../subscription?subscriptionID=983101210886012928`):**
+
+| Request | Header | Last-Modified der Antwort | Enthaltene Ladepunkt-Einträge |
+|---|---|---|---|
+| wie `main.py` heute | ohne `If-Modified-Since` | 21.07.2026 13:44:35 | 1 |
+| mit `If-Modified-Since` weit in der Vergangenheit | — | 21.07.2026 08:00:20 | **3.949** (vollständiges Basispaket) |
+| mit `If-Modified-Since` = Last-Modified des Vorpakets | — | 21.07.2026 08:00:21 (nur 1 Sekunde später) | 1 (erstes Delta nach dem Basispaket) |
+
+Zwischen dem letzten Vollbild (08:00 Uhr) und dem regulären Abruf (13:44 Uhr) lagen 5¾ Stunden, in denen bei Tesla fortlaufend einzelne Delta-Pakete im Puffer aufliefen — das zweite Paket kam bereits eine Sekunde nach dem ersten. Ein Abruf ohne den Header sieht davon ausschließlich das letzte.
+
+**Einordnung — kein Endpunkt-Fehler:** Geprüft wurde auch, ob `main.py` versehentlich einen falschen (veralteten) Endpunkt verwendet, da die Dokumentation für DATEX II v3 zusätzlich einen Pfad unter Kapitel 7 „Legacy-Schnittstellen" beschreibt (`.../subscription/datexv3?subscriptionID=`). Das ist nicht der Fall: `main.py` nutzt bereits den aktuellen, formatunabhängigen REST-Endpunkt aus Kapitel 6.2.1 (`.../subscription?subscriptionID=`) — dieser unterstützt den `If-Modified-Since`-Mechanismus nachweislich ebenfalls (siehe Tabelle oben, gleiche URL verwendet).
+
+**Methodische Einordnung:** Dies korrigiert die Interpretation aus E11 (Tesla-Feed als „strukturell begrenzte Delta-Publikation" anbieterseitig). Die *Beobachtung* aus E11 (exakt 1 Ladepunkt pro Snapshot) bleibt korrekt und reproduzierbar, die *Erklärung* war jedoch unvollständig: Es handelt sich überwiegend um ein clientseitiges Abrufproblem, nicht um ein Limit des Anbieters. Im ADR-Rahmen ist das ein lehrreicher Fall von Fehlattribution innerhalb eines BIE-Zyklus — die Betreuer-Rückmeldung, in der Primärdokumentation nachzuschauen, hat die Ursache direkt freigelegt. Für die Arbeit ist das positiv zu werten: Es zeigt, dass die Limitation *behebbar* ist und nicht (wie in E11 angenommen) strukturell beim Anbieter liegt.
+
+**Offene Punkte für die Umsetzung (noch nicht implementiert, Stand 21.07.2026):**
+1. `fetch_data()` müsste pro Feed in einer Schleife `If-Modified-Since` mitschicken (erster Aufruf: Datum weit in der Vergangenheit) und bei jedem weiteren Aufruf den `Last-Modified`-Wert der Vorantwort übernehmen, bis Status 304 („kein neueres Paket") zurückkommt.
+2. Die Dokumentation nennt einen Fehlercode 404 auch für „die maximale Anzahl an Zugriffen wurde überschritten" — eine konkrete Obergrenze ist nicht dokumentiert. Die Schleife muss diesen Fall abfangen (z. B. Abbruch mit Wartezeit statt Absturz), bevor sie produktiv/per Cron läuft.
+3. Kapitel 4.4 zufolge werden auch Delta-Pakete nach Ablauf einer vom Datengeber konfigurierten Gültigkeitsdauer aus dem Puffer verworfen — die Methode holt damit den seit dem letzten erfolgreichen Abruf aufgelaufenen Rückstand nach, garantiert aber keine lückenlose Historie, falls die Gültigkeitsdauer kürzer als der Abstand zwischen zwei Crawl-Läufen ist.
+4. Nach Implementierung: `extract_zeitreihe.py` und `berechne_kennzahlen.py` erneut laufen lassen und die E7/E8/E11-Zahlen mit den dann deutlich dichteren Daten neu bewerten.

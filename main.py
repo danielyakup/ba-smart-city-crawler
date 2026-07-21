@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import urllib3
 import requests
@@ -11,6 +12,70 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # --- KONFIGURATION ---
 CERT_FILE = "certificate.p12"
+
+# Merkt sich pro Feed den Last-Modified-Zeitstempel des zuletzt abgeholten
+# Pakets (siehe ENTSCHEIDUNGSLOG E12). Ohne diese Datei würde jeder Lauf
+# wieder bei "weit in der Vergangenheit" anfangen und die komplette
+# Warteschlange erneut abholen.
+STATUS_DATEI = "data/.abruf_status.json"
+# Verhindert, dass zwei main.py-Läufe gleichzeitig laufen: Seit ein Lauf bei
+# grossem Rueckstand (siehe E12) laenger als die 5-Minuten-Cron-Taktung
+# dauern kann, koennten sich sonst zwei Prozesse beim Schreiben von
+# STATUS_DATEI ueberschneiden.
+LOCK_DATEI = "data/.crawler.lock"
+# Startwert für einen Feed, der noch nie mit If-Modified-Since abgerufen
+# wurde: liefert laut Doku (Kapitel 4.8) das aelteste im Puffer vorhandene
+# Datenpaket zurueck, nicht wirklich alles seit dem Jahr 2000.
+EPOCH_HEADER = "Sat, 01 Jan 2000 00:00:00 GMT"
+# Sicherheitsgrenze pro Feed und Lauf, falls ein Anbieter unerwartet viele
+# Pakete gepuffert hat -- verhindert eine Endlosschleife bzw. dass ein
+# einzelner Feed den ganzen Cron-Lauf blockiert.
+MAX_PAKETE_PRO_FEED = 500
+
+
+def _lade_status():
+    if os.path.exists(STATUS_DATEI):
+        with open(STATUS_DATEI, encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def _speichere_status(status):
+    os.makedirs(os.path.dirname(STATUS_DATEI), exist_ok=True)
+    with open(STATUS_DATEI, "w", encoding="utf-8") as f:
+        json.dump(status, f, indent=2)
+
+
+def _prozess_laeuft(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # existiert, gehoert nur einem anderen User
+    return True
+
+
+def _lock_belegen():
+    """Bricht den Lauf ab, falls schon ein anderer main.py-Prozess aktiv ist
+    (z. B. weil der vorherige Cron-Tick wegen eines grossen Rueckstands noch
+    laeuft). Eine Lock-Datei mit einer toten PID gilt als verwaist und wird
+    ueberschrieben."""
+    if os.path.exists(LOCK_DATEI):
+        with open(LOCK_DATEI, encoding="utf-8") as f:
+            alte_pid_text = f.read().strip()
+        if alte_pid_text.isdigit() and _prozess_laeuft(int(alte_pid_text)):
+            print(f"Ein anderer Lauf (PID {alte_pid_text}) ist noch aktiv -- breche ab.")
+            sys.exit(0)
+        print(f"Verwaiste Lock-Datei (PID {alte_pid_text} existiert nicht mehr) -- wird ersetzt.")
+    os.makedirs(os.path.dirname(LOCK_DATEI), exist_ok=True)
+    with open(LOCK_DATEI, "w", encoding="utf-8") as f:
+        f.write(str(os.getpid()))
+
+
+def _lock_freigeben():
+    if os.path.exists(LOCK_DATEI):
+        os.remove(LOCK_DATEI)
 
 def _load_cert_password():
     """Liest das Zertifikatspasswort aus der Umgebungsvariable, sonst aus der
@@ -49,47 +114,100 @@ SUBSCRIPTIONS = {
     "chargecloud_dyn": "1006999499934756864"
 }
 
-def fetch_data(name, sub_id):
+def fetch_data(name, sub_id, status=None):
+    """Holt alle seit dem letzten Lauf aufgelaufenen Datenpakete fuer einen
+    Feed ab, nicht nur das neueste (siehe ENTSCHEIDUNGSLOG E12: Mobilithek
+    puffert bei Delta-Unterstuetzung mehrere Pakete; ohne den
+    If-Modified-Since/Last-Modified-Header liefert jeder Aufruf immer nur
+    das zuletzt eingelieferte Paket, der Rest bleibt unsichtbar).
+
+    status: das ueber Laeufe hinweg persistierte dict {feed_name:
+    Last-Modified-String}; wird hier aktualisiert, wenn 'save_status'
+    (Aufrufer) nicht selbst dafuer sorgt. Bleibt None fuer Aufrufe aus dem
+    Debug-Snippet in der CLAUDE.md (dann kein Fortschritt zwischen Laeufen).
+    """
     url = f"https://mobilithek.info:8443/mobilithek/api/v1.0/subscription?subscriptionID={sub_id}"
     print(f"Abruf läuft für: {name} (ID: {sub_id})...")
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-        "Accept": "application/json",
-        "Connection": "keep-alive"
-    }
 
-    try:
-        session = requests.Session()
-        adapter = Pkcs12Adapter(pkcs12_filename=CERT_FILE, pkcs12_password=CERT_PASSWORD)
-        session.mount('https://mobilithek.info:8443', adapter)
-        
-        # Timeout erhöht, da die Smartlab-Massenpakete extrem groß sind
-        response = session.get(url, headers=headers, verify=False, timeout=120)
+    if status is None:
+        status = {}
+
+    session = requests.Session()
+    adapter = Pkcs12Adapter(pkcs12_filename=CERT_FILE, pkcs12_password=CERT_PASSWORD)
+    session.mount('https://mobilithek.info:8443', adapter)
+
+    if not os.path.exists('data'):
+        os.makedirs('data')
+
+    if_modified_since = status.get(name, EPOCH_HEADER)
+    n_gespeichert = 0
+
+    for _ in range(MAX_PAKETE_PRO_FEED):
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            "Accept": "application/json",
+            "Connection": "keep-alive",
+            "If-Modified-Since": if_modified_since,
+        }
+        try:
+            # Timeout erhöht, da die Smartlab-Massenpakete extrem groß sind
+            response = session.get(url, headers=headers, verify=False, timeout=120)
+        except Exception as e:
+            print(f"Technischer Fehler bei {name}: {e}\n")
+            break
 
         if response.status_code == 200:
             data = response.json()
-            
-            if not os.path.exists('data'): 
-                os.makedirs('data')
-                
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
             filename = f"data/{name}_{timestamp}.json"
-            
             with open(filename, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=4)
-            print(f"Erfolg! Gespeichert unter: {filename}\n")
+            n_gespeichert += 1
+
+            neuer_stand = response.headers.get("Last-Modified")
+            if not neuer_stand:
+                # Sollte laut Doku nicht vorkommen (Kapitel 4.8.2: Responses
+                # enthalten immer Last-Modified) -- ohne den Wert koennten wir
+                # nicht sauber weiterlaufen, also lieber abbrechen als raten.
+                print(f"Warnung: {name} lieferte kein Last-Modified-Header, breche Warteschlange ab.\n")
+                break
+            if_modified_since = neuer_stand
+            status[name] = neuer_stand
+            # Kurze Pause zwischen aufeinanderfolgenden Paketen desselben
+            # Feeds -- das dokumentierte Zugriffslimit ist nicht beziffert,
+            # daher lieber vorsichtig sein.
+            time.sleep(0.3)
+            continue
+
+        elif response.status_code == 304:
+            # Kein neueres Paket als if_modified_since -- Warteschlange
+            # fuer diesen Feed ist bis zum aktuellen Stand abgearbeitet.
+            break
+        elif response.status_code == 204:
+            # Noch nie ein Paket fuer diese Subskription eingeliefert.
+            break
         else:
             print(f"Fehler bei {name}: Status-Code {response.status_code}\n")
-            
-    except Exception as e:
-        print(f"Technischer Fehler bei {name}: {e}\n")
+            break
+
+    print(f"Erfolg! {n_gespeichert} Paket(e) für {name} gespeichert.\n")
+    return status
+
 
 if __name__ == "__main__":
-    for name, sub_id in SUBSCRIPTIONS.items():
-        fetch_data(name, sub_id)
-        # 10 Sekunden Zwangspause nach jedem Download, damit die Mobilithek uns nicht blockiert
-        print("Warte 10 Sekunden für die API-Stabilität...")
-        time.sleep(10)
-        
-    print("\nAlle Abrufe abgeschlossen.")
+    _lock_belegen()
+    try:
+        status = _lade_status()
+        for name, sub_id in SUBSCRIPTIONS.items():
+            status = fetch_data(name, sub_id, status)
+            # Nach jedem Feed sichern, damit ein Fehler bei einem spaeteren Feed
+            # nicht den Fortschritt der vorherigen verwirft.
+            _speichere_status(status)
+            # 10 Sekunden Zwangspause nach jedem Feed, damit die Mobilithek uns nicht blockiert
+            print("Warte 10 Sekunden für die API-Stabilität...")
+            time.sleep(10)
+
+        print("\nAlle Abrufe abgeschlossen.")
+    finally:
+        _lock_freigeben()
