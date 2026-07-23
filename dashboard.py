@@ -84,24 +84,6 @@ st.caption(
     f"{fenster[0]:%d.%m.%Y} – {fenster[1]:%d.%m.%Y} · "
     f"{stammdaten['anbieter'].nunique()} Anbieter-Feeds"
 )
-st.info(
-    "**Lesehinweis:** Die Anbieter melden nur Statusänderungen (Delta-Feeds). "
-    "Alle Kennzahlen sind daher **beobachtete Untergrenzen** der tatsächlichen "
-    "Nutzung, keine vollständige Zählung. Ladevorgänge über 12 h (AC) bzw. "
-    "3 h (DC-Schnellladung) sind als unplausibel markiert und fließen nicht "
-    "in die Kennzahlen ein. "
-    "**Nicht belegt heißt nicht automatisch verfügbar:** Zeiten mit Status "
-    "„außer Betrieb“ werden getrennt als Ausfallquote ausgewiesen und zählen "
-    "weder zur Occupancy Rate noch zur Verfügbarkeit. Als unplausibel "
-    "verworfene Ladevorgänge zählen als eigener Anteil „Unklar“, nicht als "
-    "verfügbar (siehe ENTSCHEIDUNGSLOG E16). "
-    "**Zwei Zeitfenster:** Ladevorgänge/Belegungsstunden zählen über den "
-    "gesamten Beobachtungszeitraum; Occupancy Rate, Ausfallquote und "
-    "Verfügbarkeit beziehen sich auf das kürzere, aber durchgängig "
-    "vollständig erfasste Fenster seit dem 21.07.2026 (siehe ENTSCHEIDUNGSLOG "
-    "E14) — davor fehlten je nach Anbieter Statusänderungen strukturell.",
-    icon="ℹ️",
-)
 
 # --- Gesamtübersicht -------------------------------------------------------------
 spalte1, spalte2, spalte3, spalte4, spalte5 = st.columns(5)
@@ -156,6 +138,12 @@ spalte5.metric(
          "noch als unplausibler Ladevorgang unklar war",
 )
 
+st.caption(
+    "Plausibilitätsgrenze für Ladevorgänge: 12 h bei AC, 3 h bei DC-Schnellladung. "
+    "Occupancy, Ausfallquote und Verfügbarkeit beziehen sich auf das verlässliche "
+    "Fenster seit dem 21.07.2026; die Occupancy übers gesamte Beobachtungsfenster "
+    "steht zusätzlich zum Vergleich daneben."
+)
 st.dataframe(
     punkte[[
         "evse_id", "strasse", "betreiber", "strom_art", "max_leistung_kw",
