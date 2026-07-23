@@ -8,8 +8,10 @@ Snapshot ablesen", sondern durch Sammeln aller beobachteten Statusänderungen:
 Zwischen zwei Änderungen gilt der zuletzt gemeldete Status als fortbestehend.
 
 Wichtig: Das Feld lastUpdated im Feed ist der ECHTE Änderungszeitpunkt beim
-Anbieter — er ist genauer als unser 30-Minuten-Abrufraster und wird deshalb
-mit exportiert.
+Anbieter — er ist genauer als unser Abrufraster und wird deshalb mit
+exportiert. Ausnahme hhenergienetz (siehe ENTSCHEIDUNGSLOG E13): liefert kein
+lastUpdated auf Punkt-/Stations-/Site-Ebene, daher Fallback auf den
+Abrufzeitpunkt als geaendert_am.
 
 Voraussetzung: auswertung/stammdaten_goettingen.csv (aus extract_stammdaten.py)
 Aufruf:        venv/bin/python extract_zeitreihe.py
@@ -39,7 +41,11 @@ def iter_status_updates(data):
       - dyn-Feeds sind in 'messageContainer' verpackt, payload ist eine LISTE
         (stat-Feeds haben payload direkt als Dict)
       - EnBW nennt den Statusblock 'aegiRefillPointStatus', alle anderen
-        'aegiElectricChargingPointStatus' — beides ist DATEX-II-konform"""
+        'aegiElectricChargingPointStatus' — beides ist DATEX-II-konform
+      - hhenergienetz liefert kein lastUpdated auf cp-/Station-/Site-Ebene;
+        als Fallback dient 'publicationTime' der Publikation selbst (ein
+        echter, anbieterseitiger Zeitstempel je Nachricht, sub-sekundengenau
+        — nur eben nicht je Ladepunkt, siehe ENTSCHEIDUNGSLOG E13)"""
     container = data.get("messageContainer", data)
     payloads = container.get("payload", [])
     if isinstance(payloads, dict):
@@ -47,6 +53,7 @@ def iter_status_updates(data):
 
     for payload in payloads:
         pub = payload.get("aegiEnergyInfrastructureStatusPublication", {})
+        publication_time = pub.get("publicationTime", "")
         for site_status in pub.get("energyInfrastructureSiteStatus", []):
             site_id = site_status.get("reference", {}).get("idG", "")
             for station_status in site_status.get("energyInfrastructureStationStatus", []):
@@ -63,6 +70,7 @@ def iter_status_updates(data):
                         cp.get("lastUpdated")
                         or station_status.get("lastUpdated")
                         or site_status.get("lastUpdated")
+                        or publication_time
                         or ""
                     )
                     if punkt_id and status:
@@ -70,9 +78,13 @@ def iter_status_updates(data):
 
 
 def snapshot_zeitpunkt(filename):
-    """Liest den Abrufzeitpunkt aus dem Dateinamen ({name}_{YYYYMMDD}_{HHMMSS}.json)
-    und formatiert ihn ISO-artig — die Dateinamen SIND die Historisierung."""
-    m = re.search(r"(\d{8})_(\d{6})\.json$", filename)
+    """Liest den Abrufzeitpunkt aus dem Dateinamen und formatiert ihn ISO-artig
+    — die Dateinamen SIND die Historisierung. Seit E12 heißen neue Dateien
+    {name}_{YYYYMMDD}_{HHMMSS}_{Mikrosekunden}.json (die Nachhol-Schleife kann
+    mehrere Pakete pro Sekunde holen und braucht daher eindeutige Namen);
+    ältere Dateien im data/-Ordner haben noch das alte Format ohne
+    Mikrosekunden-Suffix — beides wird hier unterstützt (siehe E13)."""
+    m = re.search(r"(\d{8})_(\d{6})(?:_\d+)?\.json$", filename)
     if not m:
         return ""
     d, t = m.group(1), m.group(2)
@@ -141,16 +153,23 @@ if __name__ == "__main__":
             else:
                 continue
 
+            # Fallback für Anbieter ohne echten Änderungszeitpunkt im Feed
+            # (hhenergienetz liefert weder auf cp-/Station-/Site-Ebene ein
+            # lastUpdated; das einzige lastUpdated im Feed steckt in
+            # energyRateUpdate und bezieht sich auf den Preis, nicht auf den
+            # Status — siehe E13): dann den Abrufzeitpunkt als Ersatz nehmen.
+            geaendert_am = last_updated or erfasst_am
+
             # Deduplizieren: dieselbe Änderung (Punkt + Zeitpunkt + Status)
             # zählt nur einmal, egal in wie vielen Abrufen sie auftaucht
-            key = (norm_punkt, last_updated, status)
+            key = (norm_punkt, geaendert_am, status)
             if key not in updates:
                 match_ebenen[ebene] += 1
                 updates[key] = {
                     "evse_id": punkt_keys.get(norm_punkt, punkt_id),
                     "anbieter": anbieter,
                     "status": status,
-                    "geaendert_am": last_updated,
+                    "geaendert_am": geaendert_am,
                     "erfasst_am": erfasst_am,
                     "match_ebene": ebene,
                 }

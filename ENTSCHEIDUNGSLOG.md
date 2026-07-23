@@ -212,3 +212,88 @@ Zwischen dem letzten Vollbild (08:00 Uhr) und dem regulären Abruf (13:44 Uhr) l
 2. Die Dokumentation nennt einen Fehlercode 404 auch für „die maximale Anzahl an Zugriffen wurde überschritten" — eine konkrete Obergrenze ist nicht dokumentiert. Die Schleife muss diesen Fall abfangen (z. B. Abbruch mit Wartezeit statt Absturz), bevor sie produktiv/per Cron läuft.
 3. Kapitel 4.4 zufolge werden auch Delta-Pakete nach Ablauf einer vom Datengeber konfigurierten Gültigkeitsdauer aus dem Puffer verworfen — die Methode holt damit den seit dem letzten erfolgreichen Abruf aufgelaufenen Rückstand nach, garantiert aber keine lückenlose Historie, falls die Gültigkeitsdauer kürzer als der Abstand zwischen zwei Crawl-Läufen ist.
 4. Nach Implementierung: `extract_zeitreihe.py` und `berechne_kennzahlen.py` erneut laufen lassen und die E7/E8/E11-Zahlen mit den dann deutlich dichteren Daten neu bewerten.
+
+## E13 — 23.07.2026: E12-Nachlauf umgesetzt (Punkt 4) — Tesla-Fix bestätigt, dabei zwei weitere Bugs gefunden und behoben
+
+**Anlass:** Umsetzung von E12 Punkt 4 — Export-Pipeline nach dem `If-Modified-Since`-Fix erneut laufen lassen und die Zahlen neu bewerten.
+
+**Bestätigung E12:** Tesla liefert jetzt 280 Statusänderungen und 63 Ladevorgänge auf den 8 Göttinger Punkten (vorher: 0, siehe E11/E12-Totalausfall). Die Diagnose aus E12 ist damit empirisch verifiziert.
+
+**Befund 1 — hhenergienetz blieb trotz E12-Fix bei 0 Ladevorgängen, obwohl `charging`/`occupied`-Status-Einträge im Feed auftauchen.** Ursache: `iter_status_updates()` in `extract_zeitreihe.py` sucht `lastUpdated` auf `aegiElectricChargingPointStatus`-, Station- und Site-Ebene — bei hhenergienetz existiert das Feld dort nicht. Die einzige `lastUpdated`-Angabe auf dieser Ebene steckt in `energyRateUpdate[]`, bezieht sich dort aber nachweislich auf den **Energiepreis** (`energyPrice`/`energyRateReference`), nicht auf den Ladepunkt-Status — ein naiver Fallback auf dieses Feld wäre inhaltlich falsch gewesen. Auch `reference.versionG` scheidet aus: Stichprobe über mehrere Snapshots zeigt einen sitegleichen, über den gesamten Beobachtungszeitraum konstanten Wert, keinen Änderungszeitpunkt. Als Konsequenz kollabierte der bisherige Dedup-Schlüssel `(punkt, lastUpdated, status)` bei durchgehend leerem `lastUpdated` jede Wiederholung desselben Status auf eine einzige Zeile — es blieb keine Sequenz übrig, aus der sich Ladevorgänge segmentieren ließen.
+
+**Korrektur (noch am selben Tag, auf Nachfrage geprüft):** Die erste Fassung dieses Eintrags behauptete, hhenergienetz liefere *gar keinen* Änderungszeitpunkt. Das war voreilig — geprüft wurden nur die drei Stellen, an denen `iter_status_updates()` bisher nachsah. Ein vollständiger Abgleich aller Schlüssel eines hhenergienetz-Snapshots zeigt zwei bis dahin ungenutzte Felder auf **Publikationsebene** (nicht pro Ladepunkt, sondern pro Delta-Nachricht): `messageGenerationTimestamp` (im `exchangeInformation`-Umschlag) und `publicationTime` (in `aegiEnergyInfrastructureStatusPublication`). Beide ändern sich zwischen aufeinanderfolgenden Snapshots sub-sekundengenau und sind nachweislich kein Artefakt des E12-Fixes — dieselben Felder finden sich bereits in der ältesten vorhandenen hhenergienetz-Datei vom 05.06.2026. Sie existieren zudem generisch im DATEX-II-Umschlag anderer Anbieter (z. B. chargecloud), werden dort aber nicht gebraucht, weil deren Feeds ein echtes `lastUpdated` je Ladepunkt liefern.
+
+**Fix 1 (korrigiert):** `iter_status_updates()` nutzt jetzt `publicationTime` der Publikation als zusätzlichen Fallback, bevor auf den Abrufzeitpunkt (`erfasst_am`) zurückgegriffen wird: `cp.lastUpdated` → `station.lastUpdated` → `site.lastUpdated` → `publicationTime` → `erfasst_am`. Für hhenergienetz greift damit ein echter, anbieterseitiger Zeitstempel — nur eben je Nachricht/Delta-Paket, nicht je einzelnem Ladepunkt (mehrere Punkte in derselben Nachricht teilen sich denselben Wert). Der `erfasst_am`-Fallback bleibt als letztes Sicherheitsnetz bestehen, für den Fall, dass eine Publikation auch `publicationTime` einmal nicht mitliefert.
+
+**Befund 2 (bei der Fehlersuche zu Befund 1 zusätzlich entdeckt, deutlich größere Tragweite):** Der E12-Fix hat das Dateinamensformat in `main.py` (`fetch_data()`) von `{name}_{YYYYMMDD}_{HHMMSS}.json` auf `{name}_{YYYYMMDD}_{HHMMSS}_{Mikrosekunden}.json` umgestellt — notwendig, weil die Nachhol-Schleife jetzt mehrere Pakete pro Sekunde abrufen kann und eindeutige Dateinamen braucht. `snapshot_zeitpunkt()` in `extract_zeitreihe.py` wurde dabei nicht mit angepasst: Die Regex `(\d{8})_(\d{6})\.json$` griff beim neuen Format nicht mehr, wodurch `erfasst_am` für **jede seit dem 21.07.2026 abgerufene Datei leer blieb** — providerübergreifend, nicht nur bei hhenergienetz. Konkret betroffen: 4.457 von 5.724 Statusänderungen (78 %) im Stand vor diesem Fix. Da `berechne_kennzahlen.py` das Beobachtungsfenster über `erfasst_am` bestimmt (Zeile ~126–130), wurde das Fensterende dadurch stillschweigend auf die letzte Datei mit altem Namensformat zurückgestutzt — aktuellere Daten (inkl. der frisch gewonnenen Tesla-Ladevorgänge) flossen zwar in die Ladevorgangs-/Ausfall-Segmentierung ein (die über `geaendert_am` läuft), nicht aber korrekt in die Occupancy-/Ausfallquoten-Berechnung, die auf dem Fenster basiert.
+
+**Fix 2:** Regex erweitert auf `(\d{8})_(\d{6})(?:_\d+)?\.json$` — deckt altes und neues Dateinamensformat ab.
+
+**Ergebnis nach beiden Fixes (23.07.2026, Neulauf von `extract_zeitreihe.py` und `berechne_kennzahlen.py` nach der Korrektur):**
+
+| Kennzahl | vorher (vor E13) | nachher |
+|---|---|---|
+| Statusänderungen gesamt | 5.724 | 7.098 |
+| … davon `erfasst_am` leer | 4.457 (78 %) | 0 |
+| Statusänderungen hhenergienetz | 44 | ca. 1.500 |
+| Ladevorgänge hhenergienetz | 0 | 112 (auf allen 12 Ladepunkten) |
+| Ladevorgänge gesamt | 637 | 1.044 (776 plausibel ≤ 12 h, 268 als unplausibel markiert) |
+| Beobachtungsfenster | (durch Bug verkürzt) | 12.06.2026 18:48 – 23.07.2026 15:18 UTC |
+
+**Betriebsnotiz:** Beim ersten Neulauf kam es zu einer beschädigten Zeile in `statusaenderungen_goettingen.csv` (Feldanzahl-Fehler beim Einlesen in `berechne_kennzahlen.py`), weil der manuelle Skriptaufruf zeitgleich mit dem seit dem 21.07. laufenden Cron-Job `auswertung_aktualisieren.sh` (alle 15 Minuten, siehe Crontab) in dieselbe Datei schrieb. Der Cron-Job selbst schützt sich per Lock-Datei (`data/.auswertung.lock`) vor überlappenden *eigenen* Läufen, nicht aber vor gleichzeitigen manuellen Aufrufen derselben Skripte. Betroffen war nur der eine Neulauf, behoben durch erneutes, isoliertes Ausführen zwischen zwei Cron-Takten. Für künftige manuelle Skriptaufrufe: entweder auf einen `data/.auswertung.lock`-freien Moment achten oder den Cron-Takt kurz aussetzen.
+
+**Methodische Einordnung:** Ein weiteres Beispiel dafür, dass Anbieter-Heterogenität in den DATEX-II-Feeds nicht abschließend katalogisierbar ist (vgl. CLAUDE.md-Abschnitt zu den Fallstricken) — hhenergienetz ist damit der sechste dokumentierte Sonderfall nach der `aegiRefillPointStatus`-Umbenennung bei EnBW, diesmal in der Ausprägung „Zeitstempel existiert, aber nur auf Nachrichten- statt auf Punktebene". Befund 2 zeigt zudem ein Muster, das für die Methodenkritik in Kapitel 5 relevant ist: Ein gezielter Fix (E12) führte durch eine Nebenwirkung (Dateinamensänderung) zu einem neuen, stillen Datenqualitätsproblem, das nur auffiel, weil die Ergebnisse nach dem Fix aktiv gegengeprüft wurden. Und die Selbstkorrektur innerhalb dieses Eintrags ist selbst ein Beleg dafür: Die erste, zu schnelle Diagnose („kein Zeitstempel vorhanden") hätte unnötig Präzision verschenkt — erst die gezielte Nachfrage, ob das wirklich stimmt, deckte die bessere Lösung auf.
+
+## E14 — 23.07.2026: Occupancy Rate & Co. durch Gesamtfenster künstlich verwässert — zweites, kürzeres "verlässliches Fenster" eingeführt
+
+**Anlass:** Rückfrage, ob die auf E13 folgenden Kennzahlen plausibel sind — die Occupancy Rate wirkte über alle 317 Ladepunkte hinweg auffällig niedrig (Median 0,25 %, Mittelwert 0,49 %, Maximum 4,0 %).
+
+**Diagnose:** `occupancy_rate_prozent` teilt die beobachtete Belegt-Zeit durch die Länge des GESAMTEN Beobachtungsfensters seit Crawling-Beginn (12.06.2026, aktuell 40,9 Tage). Eine Auswertung der plausiblen Ladevorgänge nach Kalenderwoche zeigt aber, dass **91 % aller 776 plausiblen Ladevorgänge aus den letzten 3,6 Tagen** des Fensters stammen (seit 20.07.2026):
+
+| Woche | EnBW | Tesla | chargecloud | ecomovement | hhenergienetz |
+|---|---|---|---|---|---|
+| 22.06.–28.06. | 0 | 0 | 0 | 6 | 0 |
+| 29.06.–05.07. | 0 | 0 | 0 | 8 | 0 |
+| 06.07.–12.07. | 0 | 0 | 1 | 6 | 0 |
+| 13.07.–19.07. | 3 | 0 | 5 | 42 | 0 |
+| 20.07.–23.07. | 57 | 65 | 311 | 160 | 112 |
+
+Das deckt sich mit der dokumentierten Historie: 30-Minuten-Raster bis 11.07. (E7/E8), chargecloud erst ab 25.06. überhaupt abonniert, Tesla komplett ausgefallen bis zum E12-Fix (21.07., 19:48 Uhr Ortszeit), hhenergienetz durch den in E13 behobenen Bug bis heute praktisch ohne segmentierbare Ladevorgänge. Konkret nachgerechnet: Occupancy übers Gesamtfenster (alle 317 Punkte zusammen) ergibt 0,49 %; dieselbe Rechnung nur über die letzten 3,6 Tage (seit 20.07., durchgängig 5-Minuten-Raster plus alle Fixes aktiv) ergibt 4,57 % — knapp Faktor 9 höher. Die Kennzahl war also kein neuer Bug, sondern die erwartbare, aber in ihrer Größenordnung unterschätzte Folge des in E7/E8 bereits dokumentierten "beobachtete Untergrenze"-Vorbehalts: Das lange Gesamtfenster besteht zu einem Großteil aus Wochen mit strukturell unvollständiger Datengrundlage, die aber weiterhin ungekürzt in den Nenner einfließen.
+
+**Entscheidung — zwei Fenster statt eines:** `berechne_kennzahlen.py` unterscheidet jetzt zwischen dem **Gesamtfenster** (seit 12.06.2026, für absolute Zählungen: `ladevorgaenge`, `belegt_stunden`, `ausfaelle_anzahl`, `ausser_betrieb_stunden`, `mittlere_dauer_min` sowie `occupancy_rate_prozent` als Vergleichswert) und dem **verlässlichen Fenster** (seit dem präzise datierten E12-Fix-Deployment, `VERLAESSLICHES_FENSTER_START = 2026-07-21T17:48:21 UTC`). Ausschließlich übers verlässliche Fenster laufen ab sofort: `ausfallquote_prozent`, `verfuegbar_prozent`, `ladevorgaenge_pro_tag` sowie die neue Spalte `occupancy_rate_verlaesslich_prozent`. `occupancy_rate_prozent` (Gesamtfenster) bleibt zusätzlich erhalten, weil Occupancy Rate die zentrale Interview-Kennzahl ist (Block B, 23.06.2026) und der Vergleich zwischen beiden Fenstern selbst aussagekräftig ist.
+
+**Wichtig für die Konsistenz:** `verfuegbar_prozent = 100 − occupancy_rate_verlaesslich_prozent − ausfallquote_prozent` — alle drei Anteile beziehen sich auf dasselbe (verlässliche) Fenster und summieren sich exakt auf 100 %. Vorher hätte eine Mischung aus Gesamtfenster-Occupancy und (fälschlich ebenfalls Gesamtfenster-basierter) Ausfallquote in Kombination mit einem auf das verlässliche Fenster verkürzten Zähler zu einer nicht mehr interpretierbaren Kennzahl geführt — deshalb wurde für `ausser_betrieb_stunden` intern eine zusätzliche, nur auf das verlässliche Fenster beschränkte Zwischensumme eingeführt (nicht separat exportiert), analog für die Ladevorgänge.
+
+**Dashboard angepasst:** `dashboard.py` zeigt in der Ladepunkt-Tabelle jetzt `occupancy_rate_verlaesslich_prozent` als primäre "Occupancy (%)"-Spalte (konsistent mit Ausfallquote/Verfügbarkeit), die Gesamtfenster-Variante bleibt als "Occupancy gesamtes Fenster (%)" danebenstehen. Der Lesehinweis-Kasten erklärt die Zwei-Fenster-Logik.
+
+**Ergebnis nach der Umstellung:** Median `occupancy_rate_verlaesslich_prozent` über alle 317 Punkte: 2,70 % (Mittelwert 6,36 %, Maximum 48,61 %) — deutlich aussagekräftiger als die 0,25 %/0,49 % übers Gesamtfenster, ohne die Gesamtfenster-Zahl als ehrlichen Kontext zu verlieren.
+
+**Methodische Einordnung:** Das mit E14 eingeführte verlässliche Fenster ist explizit an ein dokumentiertes, präzise datiertes Ereignis (E12-Deployment) gekoppelt, nicht an ein willkürlich gewähltes Datum — wichtig für die Reproduzierbarkeit, falls in der Verteidigung nach der Herleitung des Stichtags gefragt wird. Der Befund reiht sich in E7/E8/E12/E13 ein: Ein wiederkehrendes Muster dieser Arbeit ist, dass Kennzahlen aus Delta-Feeds nur so gut sind wie die kontinuierlich verbesserte Abruf-Infrastruktur dahinter — und dass jede Verbesserung (5-Minuten-Raster, vollständige Delta-Abholung, providerspezifische Zeitstempel-Fallbacks) zunächst rückwirkend gegen die gesamte Historie geprüft werden muss, bevor aggregierte Prozentkennzahlen als aussagekräftig gelten können.
+
+## E15 — 23.07.2026: Plausibilitätsgrenze nach Stromart getrennt, Median als robusterer Dauer-Wert ergänzt
+
+**Anlass:** Rückfrage, ob die mittlere Ladedauer von ~118 Minuten nicht zu hoch wirkt und ob die 12h-Plausibilitätsgrenze (E7) dafür nicht zu großzügig ist.
+
+**Diagnose:** Die 118 Minuten sind der **Mittelwert** einer stark rechtsschiefen Verteilung — der Median lag bereits vorher bei 58–59 Minuten. Der lange Schwanz verteilt sich aber nicht gleichmäßig, sondern auf zwei unterschiedliche Muster:
+
+1. **66 AC-Sessions >4h:** enden alle sauber mit Status `available`, Start abends (17–19 Uhr), Ende morgens (4–7 Uhr) — plausibles Übernacht-Laden, kein Artefakt.
+2. **36 DC-Sessions >4h:** DC-Schnellladung sollte physikalisch selten über 1–2h dauern. Aufschlüsselung nach Anbieter: 26 von 36 stammen von ecomovement — für diesen Anbieter ist ein verzögertes `lastUpdated` bereits in E8 dokumentiert. Die langen DC-Sessions sind also überwiegend ein bekanntes, anbieterspezifisches Artefakt, kein Hinweis darauf, dass die Grenze generell zu locker ist.
+
+**Warum kein pauschal niedrigerer Cutoff:** Eine für alle Ladepunkte einheitlich abgesenkte Grenze (z. B. 4–6h) hätte die 66 legitimen AC-Übernachtladungen mit aussortiert und die ohnehin niedrige Occupancy Rate (E14) weiter gedrückt — am eigentlichen Problem (einzelne anbieterspezifische DC-Ausreißer) aber vorbeigezielt.
+
+**Entscheidung:** `MAX_PLAUSIBLE_DAUER_MIN` durch zwei Konstanten ersetzt — `MAX_PLAUSIBLE_DAUER_AC_MIN = 12*60` (unverändert) und `MAX_PLAUSIBLE_DAUER_DC_MIN = 3*60` (physikalisch großzügig für DC-Schnellladung bemessen). `segmentiere_intervalle()` nimmt jetzt eine Funktion `schwelle_fn(evse_id)` statt eines festen Werts entgegen; `segmentiere_ladevorgaenge()` schlägt darüber die Stromart aus den Stammdaten nach (Fallback AC bei fehlender Angabe). Ausfälle (E10) bleiben unverändert ohne Obergrenze.
+
+Zusätzlich: `kennzahlen_ladepunkte.csv` weist jetzt `median_dauer_min` neben `mittlere_dauer_min` aus — der robustere "typische" Wert, unabhängig von der Cutoff-Frage. Das Dashboard zeigt beide Werte.
+
+**Ergebnis (Neulauf 23.07.2026, alle 317 Ladepunkte):**
+
+| Kennzahl | vorher (E14, ein Cutoff 12h) | nachher (E15, AC 12h / DC 3h) |
+|---|---|---|
+| Plausible Ladevorgänge | 780 | 734 (46 DC-Ausreißer neu ausgeschlossen) |
+| Mittlere Dauer | 118 min | 100 min |
+| Median Dauer | 59 min | 54 min |
+| Occupancy Rate (verlässliches Fenster, Median über alle Punkte) | 2,70 % | 2,64 % |
+
+Die Korrektur ist bewusst moderat: Sie bereinigt einen konkret identifizierten, anbieterspezifischen Ausreißer-Cluster, verzerrt aber nicht die insgesamt niedrige Occupancy Rate zusätzlich.
+
+**Methodische Einordnung:** Reiht sich in E7/E8/E14 ein — auch dieser Befund zeigt, dass eine einzelne globale Plausibilitätsgrenze die physikalisch unterschiedlichen Ladeprofile (AC/DC) und die unterschiedliche Datenqualität einzelner Anbieter vermischt. Die Differenzierung ist so gewählt, dass sie an einem nachvollziehbaren Kriterium (Ladeleistung/Stromart, nicht Anbieter-Blacklisting) hängt, auch wenn der auslösende Befund anbieterspezifisch war (ecomovement).

@@ -87,11 +87,17 @@ st.caption(
 st.info(
     "**Lesehinweis:** Die Anbieter melden nur Statusänderungen (Delta-Feeds). "
     "Alle Kennzahlen sind daher **beobachtete Untergrenzen** der tatsächlichen "
-    "Nutzung, keine vollständige Zählung. Ladevorgänge über 12 h sind als "
-    "unplausibel markiert und fließen nicht in die Kennzahlen ein. "
+    "Nutzung, keine vollständige Zählung. Ladevorgänge über 12 h (AC) bzw. "
+    "3 h (DC-Schnellladung) sind als unplausibel markiert und fließen nicht "
+    "in die Kennzahlen ein. "
     "**Nicht belegt heißt nicht automatisch verfügbar:** Zeiten mit Status "
     "„außer Betrieb“ werden getrennt als Ausfallquote ausgewiesen und zählen "
-    "weder zur Occupancy Rate noch zur Verfügbarkeit.",
+    "weder zur Occupancy Rate noch zur Verfügbarkeit. "
+    "**Zwei Zeitfenster:** Ladevorgänge/Belegungsstunden zählen über den "
+    "gesamten Beobachtungszeitraum; Occupancy Rate, Ausfallquote und "
+    "Verfügbarkeit beziehen sich auf das kürzere, aber durchgängig "
+    "vollständig erfasste Fenster seit dem 21.07.2026 (siehe ENTSCHEIDUNGSLOG "
+    "E14) — davor fehlten je nach Anbieter Statusänderungen strukturell.",
     icon="ℹ️",
 )
 
@@ -150,9 +156,9 @@ spalte5.metric(
 st.dataframe(
     punkte[[
         "evse_id", "strasse", "betreiber", "strom_art", "max_leistung_kw",
-        "ladevorgaenge", "belegt_stunden", "mittlere_dauer_min",
-        "occupancy_rate_prozent", "ausser_betrieb_stunden",
-        "ausfallquote_prozent", "verfuegbar_prozent",
+        "ladevorgaenge", "belegt_stunden", "mittlere_dauer_min", "median_dauer_min",
+        "occupancy_rate_verlaesslich_prozent", "occupancy_rate_prozent",
+        "ausser_betrieb_stunden", "ausfallquote_prozent", "verfuegbar_prozent",
     ]]
     # Aktivste Ladepunkte zuerst — die interessieren die Verwaltung am meisten
     .sort_values("ladevorgaenge", ascending=False)
@@ -161,7 +167,14 @@ st.dataframe(
         "strom_art": "AC/DC", "max_leistung_kw": "max. kW",
         "ladevorgaenge": "Ladevorgänge", "belegt_stunden": "Belegt (h)",
         "mittlere_dauer_min": "Ø Dauer (min)",
-        "occupancy_rate_prozent": "Occupancy (%)",
+        # Median zusätzlich (E15): robuster gegen die wenigen sehr langen
+        # Übernacht-Ladungen, die den Mittelwert nach oben ziehen.
+        "median_dauer_min": "Median Dauer (min)",
+        # Verlässliches Fenster ist die Kennzahl, mit der auch Ausfallquote
+        # und Verfügbarkeit rechnen (in Summe = 100 %, siehe E14); die
+        # Gesamtfenster-Variante bleibt zum Vergleich daneben stehen.
+        "occupancy_rate_verlaesslich_prozent": "Occupancy (%)",
+        "occupancy_rate_prozent": "Occupancy gesamtes Fenster (%)",
         "ausser_betrieb_stunden": "Außer Betrieb (h)",
         "ausfallquote_prozent": "Ausfallquote (%)",
         "verfuegbar_prozent": "Verfügbar (%)",
@@ -172,7 +185,9 @@ st.dataframe(
         "Ladevorgänge": st.column_config.NumberColumn(format="%d"),
         "Belegt (h)": st.column_config.NumberColumn(format="%.1f h"),
         "Ø Dauer (min)": st.column_config.NumberColumn(format="%.0f min"),
+        "Median Dauer (min)": st.column_config.NumberColumn(format="%.0f min"),
         "Occupancy (%)": st.column_config.NumberColumn(format="%.2f %%"),
+        "Occupancy gesamtes Fenster (%)": st.column_config.NumberColumn(format="%.2f %%"),
         "max. kW": st.column_config.NumberColumn(format="%.0f kW"),
         "Außer Betrieb (h)": st.column_config.NumberColumn(format="%.1f h"),
         "Ausfallquote (%)": st.column_config.NumberColumn(format="%.2f %%"),
