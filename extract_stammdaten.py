@@ -53,7 +53,14 @@ def iter_sites(data):
 
 def extract_addresses(site):
     """Holt alle Adressblöcke EINES Standorts (alle DATEX-II-Varianten,
-    siehe compare_bnetza.py und CLAUDE.md)."""
+    siehe compare_bnetza.py und CLAUDE.md).
+
+    Liefert je Block zusätzlich die WGS84-Koordinaten (ENTSCHEIDUNGSLOG E17):
+    Laut Profildokumentation (Kapitel 2.3 der Ausarbeitung) trägt jede Station
+    verpflichtend eine Georeferenzierung als Punkt. Das Feld liegt als
+    Geschwisterfeld 'coordinatesForDisplay' direkt neben locLocationExtensionG
+    im selben locPointLocation-Block, nur bei locAreaLocation (flächenhafte
+    Referenzierung, z. B. Eco-Movement) gibt es keinen sinnvollen Einzelpunkt."""
     containers = [site.get("locationReference", {})]
     for station in site.get("energyInfrastructureStation", []):
         containers.append(station.get("locationReference", {}))
@@ -61,8 +68,9 @@ def extract_addresses(site):
     addresses = []
     for loc_ref in containers:
         for loc_type in ("locPointLocation", "locAreaLocation"):
+            loc_block = loc_ref.get(loc_type, {})
             addr = (
-                loc_ref.get(loc_type, {})
+                loc_block
                 .get("locLocationExtensionG", {})
                 .get("FacilityLocation", {})
                 .get("address", {})
@@ -80,7 +88,10 @@ def extract_addresses(site):
                     text_values = line.get("text", {}).get("values", [])
                     if text_values:
                         streets.append(str(text_values[0].get("value", "")))
-            addresses.append((city, postcode, streets))
+            koordinaten = loc_block.get("coordinatesForDisplay", {})
+            breitengrad = koordinaten.get("latitude", "")
+            laengengrad = koordinaten.get("longitude", "")
+            addresses.append((city, postcode, streets, breitengrad, laengengrad))
     return addresses
 
 
@@ -104,13 +115,26 @@ def extract_rows(site, anbieter):
     Neben der echten EVSE-ID werden auch Station- und Site-idG mitgeführt,
     weil die dynamischen Feeds je nach Anbieter auf unterschiedliche Ebenen
     referenzieren (Tesla auf den Ladepunkt, andere teils auf die Station)."""
-    # Beste verfügbare Adresse der Site wählen (erste mit Göttingen-Bezug)
-    stadt, plz, strasse = "", "", ""
-    for city, postcode, streets in extract_addresses(site):
-        if is_goettingen(city, postcode):
-            stadt, plz = city, postcode
-            strasse = streets[0] if streets else ""
-            break
+    # Beste verfügbare Adresse der Site wählen: erst alle Göttingen-Treffer
+    # sammeln, dann bevorzugt einen MIT Koordinaten nehmen (ENTSCHEIDUNGSLOG
+    # E17). Grund: Manche Anbieter (z. B. EnBW) tragen auf Site-Ebene eine
+    # Göttingen-Adresse OHNE coordinatesForDisplay ein, während dieselbe
+    # Information auf Stations-Ebene mit echten Koordinaten vorliegt -- die
+    # alte "erster Treffer gewinnt"-Logik hätte sonst immer den koordinatenlosen
+    # Site-Treffer genommen, weil er zuerst in der Liste steht.
+    stadt, plz, strasse, breitengrad, laengengrad = "", "", "", "", ""
+    goettingen_treffer = [
+        (city, postcode, streets, lat, lon)
+        for city, postcode, streets, lat, lon in extract_addresses(site)
+        if is_goettingen(city, postcode)
+    ]
+    if goettingen_treffer:
+        city, postcode, streets, lat, lon = next(
+            (t for t in goettingen_treffer if t[3] and t[4]), goettingen_treffer[0]
+        )
+        stadt, plz = city, postcode
+        strasse = streets[0] if streets else ""
+        breitengrad, laengengrad = lat, lon
 
     rows = []
     for station in site.get("energyInfrastructureStation", []):
@@ -138,6 +162,8 @@ def extract_rows(site, anbieter):
                 "strasse": strasse,
                 "plz": plz,
                 "stadt": stadt,
+                "breitengrad": breitengrad,
+                "laengengrad": laengengrad,
                 "strom_art": str(cp.get("currentType", {}).get("value", "")).upper(),
                 "max_leistung_kw": round(max_power_w / 1000, 1),
                 "stecker_typen": stecker,
@@ -186,7 +212,7 @@ if __name__ == "__main__":
             # kein Volltext-Matching, sonst Scheintreffer anderer Städte)
             if not any(
                 is_goettingen(city, postcode)
-                for city, postcode, _ in extract_addresses(site)
+                for city, postcode, _, _, _ in extract_addresses(site)
             ):
                 continue
             for row in extract_rows(site, anbieter):
@@ -206,6 +232,7 @@ if __name__ == "__main__":
     spalten = [
         "anbieter", "evse_id", "ladepunkt_name", "station_id", "site_id",
         "site_name", "betreiber", "strasse", "plz", "stadt",
+        "breitengrad", "laengengrad",
         "strom_art", "max_leistung_kw", "stecker_typen", "ladepunkte_an_station",
     ]
     with open(AUSGABE_DATEI, "w", newline="", encoding="utf-8-sig") as f:

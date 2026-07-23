@@ -48,8 +48,24 @@ ORDNER = "auswertung"
 
 # Welche DATEX-II-Statuswerte bedeuten "Ladepunkt ist belegt"?
 BELEGT = {"charging", "occupied", "reserved"}
-# Diese Werte beenden eine Belegung, zählen aber nicht als Nutzung
-AUSSER_BETRIEB = {"outOfOrder", "inoperative", "outOfService"}
+
+# Diese Werte beenden eine Belegung, zählen aber nicht als Nutzung.
+# ENTSCHEIDUNGSLOG E17: Beim Schreiben von Kapitel 2.3 wurde die vollständige
+# RefillPointStatusEnum aus der Profildokumentation bekannt: available, blocked,
+# charging, faulted, inoperative, occupied, outOfOrder, outOfStock, planned,
+# removed, reserved, unavailable, unknown. Abgleich gegen die echten Daten ergab
+# zwei Korrekturen: "outOfService" kam in keiner einzigen Zeile vor (0 von 3.995
+# AUSSER_BETRIEB-Kandidaten), der tatsächliche Enum-Wert lautet "outOfStock" --
+# das war also toter Code. Außerdem fehlten "faulted", "blocked" und
+# "unavailable", obwohl sie in den echten Daten auftreten (2, 3 bzw. 31 Mal) und
+# semantisch klar "nicht nutzbar" bedeuten -- ohne diese Ergänzung wären sie
+# still als "verfügbar" durchgegangen, obwohl der Punkt gerade nicht nutzbar war.
+# "planned"/"removed" bewusst NICHT aufgenommen: Das sind Lebenszyklus-Zustände
+# (noch nicht bzw. nicht mehr in Betrieb), keine temporäre Störung eines
+# bestehenden Punkts, und kommen in den Daten aktuell nicht vor. "unknown"
+# bleibt ebenfalls bewusst außen vor -- der Zustand ist per Definition nicht
+# feststellbar, weder Nutzung noch Störung zuzuordnen.
+AUSSER_BETRIEB = {"outOfOrder", "inoperative", "faulted", "outOfStock", "blocked", "unavailable"}
 
 # Plausibilitätsgrenze für die Dauer eines einzelnen Ladevorgangs — seit
 # ENTSCHEIDUNGSLOG E15 getrennt nach Stromart, vorher ein einheitlicher Wert.

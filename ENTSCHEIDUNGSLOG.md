@@ -325,3 +325,32 @@ Die Korrektur ist bewusst moderat: Sie bereinigt einen konkret identifizierten, 
 | Göttinger Ladepunkte (Stammdaten) | 317 | 317 (unverändert, Smartlab-Ausschluss war erwartungsgemäß folgenlos) |
 
 **Methodische Einordnung:** Dieser Review-Durchgang unterscheidet sich von E12–E15 dadurch, dass er nicht durch eine einzelne Rückfrage zu einer auffälligen Zahl ausgelöst wurde, sondern durch einen systematischen, gezielt nach der wiederkehrenden Fehlerklasse suchenden Agenten-Review — im ADR-Rahmen ein Übergang vom reaktiven BIE-Zyklus (Befund → Fix → Neubewertung, wie in E12–E15) zu einem proaktiven Prüfschritt. Bemerkenswert für die Methodenkritik: Trotz des systematischen Ansatzes blieben die Befunde in ihrer Schwere gestaffelt (ein struktureller Datenverlust-Kandidat, mehrere Interpretationsfehler bei abgeleiteten Kennzahlen, zwei folgenlose Robustheits-Lücken) — auch ein gezielter Review ersetzt nicht die kontinuierliche Neubewertung nach jeder Pipeline-Änderung, die sich durch E12–E16 zieht.
+
+## E17 (23.07.2026): Erkenntnisse aus Kapitel 2.3 zurück in den Code eingearbeitet (Koordinaten, Status-Enum)
+
+**Anlass:** Beim Schreiben von Kapitel 2.3 (Architektur von Ladeinfrastrukturdaten) wurde die Profildokumentation im Detail durchgearbeitet. Zwei Diskrepanzen zwischen dem theoretischen Wissen aus Kapitel 2.3 und dem tatsächlichen Code fielen dabei auf.
+
+**Befund 1: WGS84-Koordinaten werden nie extrahiert, obwohl sie in den echten Daten vorliegen.** Tabelle 2 der Profildokumentation verlangt für jede Ladestation eine Georeferenzierung als Punkt. Das Feld `coordinatesForDisplay` liegt im JSON direkt neben dem Adressblock, den `extract_addresses()` in `extract_stammdaten.py` bereits ausliest, wurde bisher aber ignoriert. Stichprobe an einer EnBW-Station bestätigte reale, befüllte Koordinaten. **Fix:** `extract_addresses()` liefert jetzt zusätzlich Breiten- und Längengrad; zwei neue Spalten `breitengrad`/`laengengrad` in `stammdaten_goettingen.csv`.
+
+**Dabei selbst verursachter und sofort behobener Fehler:** Die bestehende Auswahllogik nahm den ERSTEN Adressblock mit Göttingen-Bezug. Bei EnBW trägt die Site-Ebene ebenfalls eine Göttingen-Adresse, aber ohne Koordinaten, während erst die Stations-Ebene die echten Koordinaten führt. Da die Site-Ebene zuerst in der Liste steht, hätte die ursprüngliche Umsetzung immer den koordinatenlosen Treffer gewählt. Korrigiert: Es wird jetzt unter allen Göttingen-Treffern bevorzugt einer MIT Koordinaten gewählt, sonst weiterhin der erste Treffer (Adressauswahl für Straße/PLZ/Stadt bleibt dadurch unverändert). Ergebnis nach Fix: alle 317 Ladepunkte mit Koordinaten (vorher 79 von 317, nur Tesla/chargecloud/ecomovement/hhenergienetz, EnBW bei 0 von 13).
+
+**Befund 2: Die Status-Sets in `berechne_kennzahlen.py` bildeten die tatsächliche RefillPointStatusEnum nur unvollständig ab.** Aus Kapitel 2.3 (Abbildung 23 der Profildokumentation) ist die vollständige Enum bekannt: available, blocked, charging, faulted, inoperative, occupied, outOfOrder, outOfStock, planned, removed, reserved, unavailable, unknown. Abgleich gegen die echten Daten (`statusaenderungen_goettingen.csv`) ergab zwei Korrekturen:
+- `outOfService` (bisher Teil von `AUSSER_BETRIEB`) kommt in keiner einzigen der 3.995 Zeilen vor. Der tatsächliche Enum-Wert lautet `outOfStock`. Toter Code.
+- `faulted` (2 Vorkommen), `blocked` (3 Vorkommen) und `unavailable` (31 Vorkommen) fehlten komplett, obwohl sie in den echten Daten auftreten und semantisch eindeutig "nicht nutzbar" bedeuten. Ohne Zuordnung liefen diese 36 Statuswechsel still als "verfügbar" durch, analog zum in E16 behobenen Muster bei den unplausiblen Ladevorgängen.
+
+**Fix:** `AUSSER_BETRIEB = {"outOfOrder", "inoperative", "faulted", "outOfStock", "blocked", "unavailable"}`. Bewusst NICHT aufgenommen: `planned` und `removed` (Lebenszyklus-Zustände, kein temporärer Ausfall eines bestehenden Punkts, aktuell 0 Vorkommen in den Daten) sowie `unknown` (per Definition nicht feststellbar, weiterhin weder Nutzung noch Störung zugeordnet).
+
+**Ergebnis nach beiden Fixes (Neulauf der gesamten Pipeline):**
+
+| Kennzahl | vorher | nachher |
+|---|---|---|
+| Ladepunkte mit Koordinaten | 79 von 317 | 317 von 317 |
+| Beobachtete Ausfallzeiten | 117 auf 34 Ladepunkten | 150 auf 42 Ladepunkten |
+| Konsistenzcheck (Occupancy + Ausfallquote + Unklar + Verfügbar) | 100 % | 100 % (weiterhin exakt, über alle 317 Punkte) |
+
+**Zusätzlich geprüft, aber ohne Codeänderung:**
+- **NUTS-Code:** laut Tabelle 2 verpflichtend, in den Göttinger Daten aller fünf Anbieter (EnBW, Tesla, chargecloud, ecomovement, hhenergienetz) durchgängig leer. Kein Codeproblem, das Feld wird in der Praxis von keinem Anbieter befüllt.
+- **`operatingHours`:** ist in den realen Daten NICHT durchgängig 24/7 (Beispiel gefunden: "Friday 08:00 bis 15:00, Monday 08:00 bis 17:00", vermutlich ein Ladepunkt an einem Standort mit eigenen Öffnungszeiten). Methodisch relevant, weil die aktuelle Occupancy Rate die Belegt-Zeit durch das gesamte Beobachtungsfenster teilt, ohne geschlossene Zeiten auszuklammern. Bewusst nicht umgesetzt: Das Feld hat eine komplex verschachtelte Struktur (wiederkehrende Wochentagsmuster, Ausnahmeperioden) und eine saubere Berücksichtigung wäre eine eigenständige methodische Erweiterung, offener Punkt für eine mögliche weitere Iteration.
+- **`totalMaximumPower`, `serviceType`, `authenticationAndIdentificationMethods`:** vorhanden, aber ohne erkennbaren Mehrwert für die aktuelle Occupancy-fokussierte Auswertung, daher nicht ergänzt.
+
+**Methodische Einordnung:** Dieser Befund zeigt einen Rückkopplungseffekt zwischen Schreibarbeit und Artefakt, der im ADR-Rahmen selten explizit dokumentiert wird. Die theoretische Auseinandersetzung mit der Spezifikation für Kapitel 2.3 deckte zwei Lücken auf, die reine Code-Reviews (E16) nicht gefunden hatten, weil sie kein Wissen über die vollständige Enum bzw. die verfügbaren Location-Felder voraussetzten. Für die Methodenkritik in Kapitel 5 ein Beleg dafür, dass Theoriearbeit und Implementierung in einem ADR-Projekt wechselseitig aufeinander einwirken, nicht nur wie in Stage 1 vorgesehen von der Theorie zum Artefakt, sondern auch zurück.
