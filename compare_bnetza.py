@@ -162,14 +162,24 @@ def extract_evse_ids(site):
     return ids
 
 
-json_files = [
+# sorted() für reproduzierbare Verarbeitungsreihenfolge (ENTSCHEIDUNGSLOG
+# E16 — vorher von der nicht garantierten glob()-Reihenfolge abhängig);
+# smartlab-Dateien explizit ausgeschlossen (CLAUDE.md: bewusst als Beleg
+# archiviert, aber nicht Teil der aktiven Pipeline — der lose "stat"/"static"-
+# Substring-Filter hätte sie sonst wieder mit reingezogen, da
+# "smartlab_afir_static_*"/"_dynamic_*" beide Substrings enthalten).
+json_files = sorted(
     f for f in glob.glob("data/*.json")
     if ("stat" in os.path.basename(f).lower() or "static" in os.path.basename(f).lower())
-]
+    and not os.path.basename(f).lower().startswith("smartlab")
+)
 
 provider_matches = {}      # Anbieter -> Menge der getroffenen Punkt-Schlüssel (eindeutig)
 provider_id_matches = {}   # Anbieter -> davon hart über EVSE-ID belegt
-provider_goe_sites = {}    # Anbieter -> Anzahl Standorte mit Göttingen-Adresse
+# Anbieter -> Menge eindeutiger Göttingen-Site-IDs, über ALLE Snapshots
+# akkumuliert (ENTSCHEIDUNGSLOG E16 — vorher pro Datei überschrieben, bei
+# mehreren Snapshots desselben Anbieters zählte nur der zuletzt verarbeitete)
+provider_goe_site_ids = {}
 matched_total = set()      # global eindeutige Treffer
 matched_by_id = set()      # global: über EVSE-ID belegt (hart, eindeutig)
 matched_by_street = set()  # global: über Straße im Göttingen-Datensatz gefunden
@@ -195,7 +205,7 @@ for file_path in json_files:
     # - Straßennamen NUR aus Datensätzen mit Göttingen-Adresse
     all_ids = set()
     goe_streets = set()
-    goe_site_count = 0
+    goe_site_ids_diese_datei = set()
 
     for site in iter_sites(data):
         all_ids |= extract_evse_ids(site)
@@ -208,7 +218,13 @@ for file_path in json_files:
                     if len(cs) >= 4:
                         goe_streets.add(cs)
         if site_in_goe:
-            goe_site_count += 1
+            # Über die Site-ID deduplizieren statt nur zu zählen (E16): sonst
+            # würde derselbe Standort, der in zwei Snapshots desselben
+            # Anbieters auftaucht, doppelt gezählt. Fällt idG ausnahmsweise
+            # leer aus, wird die Site trotzdem gezählt (kann dann allerdings
+            # nicht über mehrere Snapshots hinweg dedupliziert werden).
+            site_key = normalize_id(site.get("idG", "")) or f"__ohne_idG_{len(goe_site_ids_diese_datei)}"
+            goe_site_ids_diese_datei.add(site_key)
 
     # Speicher der großen Dateien (bis 508 MB) sofort wieder freigeben
     del data
@@ -219,7 +235,10 @@ for file_path in json_files:
     # Anbieter-ID auftaucht (z. B. mit angehängter Steckplatz-Nummer)
     id_blob = " ".join(all_ids)
 
-    provider_goe_sites[provider] = goe_site_count
+    # Akkumulieren statt überschreiben (E16): mehrere Snapshots desselben
+    # Anbieters ergänzen dieselbe Site-Menge, statt dass der zuletzt
+    # verarbeitete Snapshot die vorherigen Zahlen verdrängt.
+    provider_goe_site_ids.setdefault(provider, set()).update(goe_site_ids_diese_datei)
     hits = provider_matches.setdefault(provider, set())
     id_hits = provider_id_matches.setdefault(provider, set())
 
@@ -255,7 +274,7 @@ print(f"{'Anbieter':<24} | {'Goe-Sites':>9} | {'per EVSE-ID':>11} | {'per Adress
 print("-" * 76)
 for provider, hits in sorted(provider_matches.items()):
     id_hits = provider_id_matches.get(provider, set())
-    sites = provider_goe_sites.get(provider, 0)
+    sites = len(provider_goe_site_ids.get(provider, set()))
     print(f"{provider:<24} | {sites:>9} | {len(id_hits):>11} | {len(hits - id_hits):>11} | {len(hits):>6}")
 print("-" * 76)
 

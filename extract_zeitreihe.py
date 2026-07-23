@@ -10,8 +10,12 @@ Zwischen zwei Änderungen gilt der zuletzt gemeldete Status als fortbestehend.
 Wichtig: Das Feld lastUpdated im Feed ist der ECHTE Änderungszeitpunkt beim
 Anbieter — er ist genauer als unser Abrufraster und wird deshalb mit
 exportiert. Ausnahme hhenergienetz (siehe ENTSCHEIDUNGSLOG E13): liefert kein
-lastUpdated auf Punkt-/Stations-/Site-Ebene, daher Fallback auf den
-Abrufzeitpunkt als geaendert_am.
+lastUpdated auf Punkt-/Stations-/Site-Ebene, daher Fallback auf
+publicationTime der Publikation, notfalls den Abrufzeitpunkt als
+geaendert_am. Weil publicationTime pro NACHRICHT statt pro PUNKT gilt und
+hhenergienetz fast den ganzen Bestand pro Nachricht republiziert, würden ohne
+die Bereinigung in `entferne_wiederholte_status()` (ENTSCHEIDUNGSLOG E16)
+viele Zeilen entstehen, die keine echte Statusänderung sind.
 
 Voraussetzung: auswertung/stammdaten_goettingen.csv (aus extract_stammdaten.py)
 Aufruf:        venv/bin/python extract_zeitreihe.py
@@ -77,6 +81,32 @@ def iter_status_updates(data):
                         yield punkt_id, station_id, site_id, status, last_updated
 
 
+def entferne_wiederholte_status(zeilen):
+    """Entfernt aufeinanderfolgende Zeilen mit demselben Status für denselben
+    Ladepunkt (ENTSCHEIDUNGSLOG E16). Hintergrund: hhenergienetz republiziert
+    bei fast jeder Nachricht nahezu den gesamten Bestand, auch wenn sich am
+    Status eines Punkts nichts geändert hat. Weil für diesen Anbieter
+    'publicationTime' (ein Nachrichten-, kein Punkt-Zeitstempel, siehe E13)
+    als geaendert_am dient, erzeugt jede Republikation eine scheinbar neue
+    Statusänderung. Die Segmentierung in berechne_kennzahlen.py ignoriert
+    solche Wiederholungen ohnehin (überspringt gleiche Folge-Status) — diese
+    Bereinigung sorgt dafür, dass auch der Export selbst nur echte Übergänge
+    zeigt, nicht Republikationen. Entfernt nur UNMITTELBAR aufeinanderfolgende
+    Duplikate; ein Wechsel über einen anderen Status dazwischen (z. B.
+    available -> unknown -> available) bleibt als zwei echte Übergänge
+    erhalten. `zeilen` muss bereits nach (evse_id, geaendert_am) sortiert sein."""
+    bereinigt = []
+    letzter_punkt = None
+    letzter_status = None
+    for zeile in zeilen:
+        if zeile["evse_id"] == letzter_punkt and zeile["status"] == letzter_status:
+            continue
+        bereinigt.append(zeile)
+        letzter_punkt = zeile["evse_id"]
+        letzter_status = zeile["status"]
+    return bereinigt
+
+
 def snapshot_zeitpunkt(filename):
     """Liest den Abrufzeitpunkt aus dem Dateinamen und formatiert ihn ISO-artig
     — die Dateinamen SIND die Historisierung. Seit E12 heißen neue Dateien
@@ -114,9 +144,14 @@ if __name__ == "__main__":
           f"{len(station_keys)} Stationen, {len(site_keys)} Sites\n")
 
     # 2. Alle dyn-Snapshots parsen ----------------------------------------------
+    # smartlab-Dateien explizit ausgeschlossen (ENTSCHEIDUNGSLOG E16, analog
+    # zu extract_stammdaten.py): "smartlab_afir_dynamic_*" enthält "dyn" als
+    # Substring von "dynamic" und würde sonst trotz Entfernung aus
+    # SUBSCRIPTIONS wieder mitgeparst.
     json_files = sorted(
         f for f in glob.glob("data/*.json")
         if "dyn" in os.path.basename(f).lower()
+        and not os.path.basename(f).lower().startswith("smartlab")
     )
     print(f"Scanne {len(json_files)} dynamische Snapshots...")
 
@@ -177,12 +212,16 @@ if __name__ == "__main__":
     # 3. CSV schreiben ------------------------------------------------------------
     spalten = ["evse_id", "anbieter", "status", "geaendert_am", "erfasst_am", "match_ebene"]
     zeilen = sorted(updates.values(), key=lambda r: (r["evse_id"], r["geaendert_am"]))
+    vor_bereinigung = len(zeilen)
+    zeilen = entferne_wiederholte_status(zeilen)
     with open(AUSGABE_DATEI, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(f, fieldnames=spalten, delimiter=";")
         writer.writeheader()
         writer.writerows(zeilen)
 
     print(f"\nFertig: {len(zeilen)} eindeutige Statusänderungen "
-          f"(Match-Ebenen: {match_ebenen}, Lesefehler: {fehler})")
+          f"({vor_bereinigung - len(zeilen)} Wiederholungen ohne echten "
+          f"Statuswechsel entfernt, siehe E16; Match-Ebenen: {match_ebenen}, "
+          f"Lesefehler: {fehler})")
     print(f"Betroffene Ladepunkte: {len({r['evse_id'] for r in zeilen})} von {len(punkt_keys)}")
     print(f"Gespeichert unter: {AUSGABE_DATEI}")

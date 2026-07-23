@@ -151,10 +151,17 @@ def extract_rows(site, anbieter):
 if __name__ == "__main__":
     print("Extrahiere Stammdaten der Göttinger Ladepunkte aus den stat-Feeds...\n")
 
+    # smartlab-Dateien explizit ausgeschlossen (ENTSCHEIDUNGSLOG E16):
+    # CLAUDE.md verlangt, sie als Beleg zu archivieren, aber sie sollen NICHT
+    # Teil der aktiven Pipeline sein -- der lose "stat"/"static"-Substring-
+    # Filter hätte sie sonst wieder mit reingezogen ("smartlab_afir_static_*"
+    # enthält beide Substrings). Aktuell folgenlos (0 Göttingen-Treffer, siehe
+    # E2/E4/E5), aber nicht mehr zufallsbedingt.
     json_files = sorted(
         f for f in glob.glob("data/*.json")
-        if "stat" in os.path.basename(f).lower()
-        or "static" in os.path.basename(f).lower()
+        if ("stat" in os.path.basename(f).lower()
+            or "static" in os.path.basename(f).lower())
+        and not os.path.basename(f).lower().startswith("smartlab")
     )
 
     # Neuere Snapshots überschreiben ältere Einträge desselben Ladepunkts

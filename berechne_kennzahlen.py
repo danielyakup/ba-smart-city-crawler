@@ -9,8 +9,12 @@ Verteilung über Wochentag/Wochenende und Tageszeit.
 Zusätzlich (siehe ENTSCHEIDUNGSLOG E10) werden AUSSER_BETRIEB-Phasen separat
 segmentiert: "nicht belegt" heißt nicht automatisch "verfügbar" — ein
 Ladepunkt kann auch defekt sein. occupancy_rate_prozent (Nutzung) und
-ausfallquote_prozent (Störung) werden daher getrennt ausgewiesen;
-verfuegbar_prozent ist der Rest des Beobachtungsfensters.
+ausfallquote_prozent (Störung) werden daher getrennt ausgewiesen. Seit E16
+gibt es zusätzlich unklar_quote_prozent: Zeit aus als unplausibel verworfenen
+Ladevorgängen (E15) landete vorher unbeabsichtigt im Verfügbarkeits-Rest,
+obwohl der Punkt nachweislich belegt war — jetzt ein eigener dritter Anteil.
+verfuegbar_prozent ist der verbleibende Rest des Beobachtungsfensters
+(Nutzung + Störung + Unklar abgezogen).
 
 WICHTIGE EINSCHRÄNKUNG (siehe ENTSCHEIDUNGSLOG E7/E8): Die dyn-Feeds sind
 Delta-Feeds und werden alle 5 Minuten abgerufen (bis 11.07.2026: 30 Minuten)
@@ -183,6 +187,16 @@ def aggregiere_kennzahlen(events, ausfaelle, zeitreihe, stammdaten):
     verlaesslich_stunden = (beobachtung_ende - verlaesslich_start).total_seconds() / 3600
     verlaesslich_tage = verlaesslich_stunden / 24
 
+    # Als unplausibel markierte Ladevorgänge (E15) vor dem Verwerfen sichern
+    # (ENTSCHEIDUNGSLOG E16): Sie wurden bisher schlicht aus der Aggregation
+    # entfernt und flossen dadurch über die Restformel unbeabsichtigt in
+    # verfuegbar_prozent ein, obwohl der Ladepunkt in dieser Zeit nachweislich
+    # NICHT frei war (er meldete durchgehend charging/occupied, nur die Dauer
+    # gilt als unglaubwürdig lang). Diese Zeit bekommt jetzt einen eigenen,
+    # dritten Anteil (unklar_quote_prozent) statt stillschweigend als
+    # "verfügbar" gezählt zu werden.
+    unplausibel = events[~events["plausibel"]].copy() if not events.empty else events
+
     if not events.empty:
         events = events[events["plausibel"]].copy()
 
@@ -256,23 +270,50 @@ def aggregiere_kennzahlen(events, ausfaelle, zeitreihe, stammdaten):
     else:
         ausfall_agg = pd.DataFrame(columns=["evse_id", "ausfaelle_anzahl", "ausser_betrieb_stunden", "ausser_betrieb_stunden_verlaesslich"])
 
+    # Unplausible Ladevorgänge (E15/E16): dieselbe Aggregation wie oben, aber
+    # nur für die als unplausibel verworfenen Sessions, die im verlässlichen
+    # Fenster STARTEN — Grundlage für unklar_quote_prozent.
+    if not unplausibel.empty:
+        unplausibel_verlaesslich = unplausibel[unplausibel["start"] >= verlaesslich_start]
+        if not unplausibel_verlaesslich.empty:
+            unklar_agg = unplausibel_verlaesslich.groupby("evse_id").agg(
+                unklar_stunden_verlaesslich=("dauer_minuten", lambda m: m.sum() / 60),
+            ).reset_index()
+        else:
+            unklar_agg = pd.DataFrame(columns=["evse_id", "unklar_stunden_verlaesslich"])
+    else:
+        unklar_agg = pd.DataFrame(columns=["evse_id", "unklar_stunden_verlaesslich"])
+
     # Stammdaten dazu — auch Ladepunkte OHNE beobachtete Ladevorgänge/Ausfälle
     # bleiben in der Tabelle (ladevorgaenge=0): "keine Beobachtung" ist ein
     # Befund, kein fehlender Datensatz
-    kennzahlen = stammdaten.merge(agg, on="evse_id", how="left").merge(ausfall_agg, on="evse_id", how="left")
-    zahl_spalten = [c for c in list(agg.columns) + list(ausfall_agg.columns) if c != "evse_id"]
+    kennzahlen = (
+        stammdaten.merge(agg, on="evse_id", how="left")
+        .merge(ausfall_agg, on="evse_id", how="left")
+        .merge(unklar_agg, on="evse_id", how="left")
+    )
+    zahl_spalten = [c for c in list(agg.columns) + list(ausfall_agg.columns) + list(unklar_agg.columns) if c != "evse_id"]
     kennzahlen[zahl_spalten] = kennzahlen[zahl_spalten].fillna(0)
 
-    # Ausfallquote und Verfügbarkeit (ENTSCHEIDUNGSLOG E10) rechnen seit E14
-    # NUR noch übers verlässliche Fenster — sonst wären beide Werte (Zähler
-    # aus dem kurzen verlässlichen Fenster, Nenner aus dem langen Gesamtfenster)
-    # nicht konsistent zueinander. clip(lower=0) fängt Rundungsartefakte ab.
+    # Ausfallquote, Unklar-Quote und Verfügbarkeit (ENTSCHEIDUNGSLOG E10/E16)
+    # rechnen seit E14 NUR noch übers verlässliche Fenster — sonst wären die
+    # Werte (Zähler aus dem kurzen verlässlichen Fenster, Nenner aus dem
+    # langen Gesamtfenster) nicht konsistent zueinander. clip(lower=0) fängt
+    # Rundungsartefakte ab.
     kennzahlen["ausfallquote_prozent"] = (
         kennzahlen["ausser_betrieb_stunden_verlaesslich"] / verlaesslich_stunden * 100
     ).round(2)
-    kennzahlen = kennzahlen.drop(columns=["ausser_betrieb_stunden_verlaesslich"])
+    # unklar_quote_prozent (E16): Zeit aus als unplausibel verworfenen
+    # Ladevorgängen — weder als Nutzung noch als Ausfall zählbar, aber
+    # nachweislich NICHT frei verfügbar. Wird explizit ausgewiesen statt
+    # stillschweigend in verfuegbar_prozent zu verschwinden.
+    kennzahlen["unklar_quote_prozent"] = (
+        kennzahlen["unklar_stunden_verlaesslich"] / verlaesslich_stunden * 100
+    ).round(2)
+    kennzahlen = kennzahlen.drop(columns=["ausser_betrieb_stunden_verlaesslich", "unklar_stunden_verlaesslich"])
     kennzahlen["verfuegbar_prozent"] = (
-        100 - kennzahlen["occupancy_rate_verlaesslich_prozent"] - kennzahlen["ausfallquote_prozent"]
+        100 - kennzahlen["occupancy_rate_verlaesslich_prozent"]
+        - kennzahlen["ausfallquote_prozent"] - kennzahlen["unklar_quote_prozent"]
     ).clip(lower=0).round(2)
 
     return kennzahlen, beobachtung_start, beobachtung_ende, verlaesslich_start

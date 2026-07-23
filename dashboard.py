@@ -92,7 +92,9 @@ st.info(
     "in die Kennzahlen ein. "
     "**Nicht belegt heißt nicht automatisch verfügbar:** Zeiten mit Status "
     "„außer Betrieb“ werden getrennt als Ausfallquote ausgewiesen und zählen "
-    "weder zur Occupancy Rate noch zur Verfügbarkeit. "
+    "weder zur Occupancy Rate noch zur Verfügbarkeit. Als unplausibel "
+    "verworfene Ladevorgänge zählen als eigener Anteil „Unklar“, nicht als "
+    "verfügbar (siehe ENTSCHEIDUNGSLOG E16). "
     "**Zwei Zeitfenster:** Ladevorgänge/Belegungsstunden zählen über den "
     "gesamten Beobachtungszeitraum; Occupancy Rate, Ausfallquote und "
     "Verfügbarkeit beziehen sich auf das kürzere, aber durchgängig "
@@ -150,7 +152,8 @@ if len(events_auswahl):
 spalte5.metric(
     "Ø Verfügbarkeit",
     f"{punkte['verfuegbar_prozent'].mean():.1f} %" if len(punkte) else "–",
-    help="Anteil des Beobachtungsfensters, der weder belegt noch außer Betrieb war",
+    help="Anteil des Beobachtungsfensters, der weder belegt noch außer Betrieb "
+         "noch als unplausibler Ladevorgang unklar war",
 )
 
 st.dataframe(
@@ -158,7 +161,8 @@ st.dataframe(
         "evse_id", "strasse", "betreiber", "strom_art", "max_leistung_kw",
         "ladevorgaenge", "belegt_stunden", "mittlere_dauer_min", "median_dauer_min",
         "occupancy_rate_verlaesslich_prozent", "occupancy_rate_prozent",
-        "ausser_betrieb_stunden", "ausfallquote_prozent", "verfuegbar_prozent",
+        "ausser_betrieb_stunden", "ausfallquote_prozent", "unklar_quote_prozent",
+        "verfuegbar_prozent",
     ]]
     # Aktivste Ladepunkte zuerst — die interessieren die Verwaltung am meisten
     .sort_values("ladevorgaenge", ascending=False)
@@ -177,6 +181,9 @@ st.dataframe(
         "occupancy_rate_prozent": "Occupancy gesamtes Fenster (%)",
         "ausser_betrieb_stunden": "Außer Betrieb (h)",
         "ausfallquote_prozent": "Ausfallquote (%)",
+        # Zeit aus als unplausibel verworfenen Ladevorgängen (E15/E16) --
+        # weder Nutzung noch Ausfall, aber nachweislich nicht frei verfügbar.
+        "unklar_quote_prozent": "Unklar (%)",
         "verfuegbar_prozent": "Verfügbar (%)",
     }),
     width='stretch',
@@ -191,6 +198,7 @@ st.dataframe(
         "max. kW": st.column_config.NumberColumn(format="%.0f kW"),
         "Außer Betrieb (h)": st.column_config.NumberColumn(format="%.1f h"),
         "Ausfallquote (%)": st.column_config.NumberColumn(format="%.2f %%"),
+        "Unklar (%)": st.column_config.NumberColumn(format="%.2f %%"),
         "Verfügbar (%)": st.column_config.NumberColumn(format="%.1f %%"),
     },
 )

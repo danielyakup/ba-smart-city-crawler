@@ -30,7 +30,14 @@ EPOCH_HEADER = "Sat, 01 Jan 2000 00:00:00 GMT"
 # Sicherheitsgrenze pro Feed und Lauf, falls ein Anbieter unerwartet viele
 # Pakete gepuffert hat -- verhindert eine Endlosschleife bzw. dass ein
 # einzelner Feed den ganzen Cron-Lauf blockiert.
-MAX_PAKETE_PRO_FEED = 500
+# Ursprünglich 500 (E12); ein Code-Review nach E12/E13 fand anhand der
+# Dateinamen-Zeitstempel, dass Tesla/EnBW/hhenergienetz dieses Limit in
+# 2,7-5,3% aller Cron-Läufe erreichten, OHNE dass die Warteschlange leer war
+# (kein 304/204) -- der Rückstand wurde dann erst über mehrere weitere
+# Läufe nachgeholt, ohne dass das sichtbar war. Auf 1000 angehoben, um das
+# seltener zu machen; die Schleife loggt seit ENTSCHEIDUNGSLOG E16 zusätzlich
+# explizit, wenn das Limit trotzdem greift, statt es kommentarlos abzuschneiden.
+MAX_PAKETE_PRO_FEED = 1000
 
 
 def _lade_status():
@@ -157,12 +164,20 @@ def fetch_data(name, sub_id, status=None):
             break
 
         if response.status_code == 200:
-            data = response.json()
-
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
-            filename = f"data/{name}_{timestamp}.json"
-            with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=4)
+            # JSON-Dekodierung und Dateischreiben abgesichert (ENTSCHEIDUNGSLOG
+            # E16): Ein kaputtes/unerwartetes Paket sollte nur diesen einen
+            # Feed abbrechen, nicht den ganzen Cron-Lauf (der if_modified_since
+            # wird in diesem Fall NICHT fortgeschrieben, das Paket wird beim
+            # naechsten Lauf einfach erneut versucht).
+            try:
+                data = response.json()
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+                filename = f"data/{name}_{timestamp}.json"
+                with open(filename, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=4)
+            except Exception as e:
+                print(f"Fehler beim Verarbeiten/Speichern der Antwort von {name}: {e}\n")
+                break
             n_gespeichert += 1
 
             neuer_stand = response.headers.get("Last-Modified")
@@ -190,6 +205,18 @@ def fetch_data(name, sub_id, status=None):
         else:
             print(f"Fehler bei {name}: Status-Code {response.status_code}\n")
             break
+    else:
+        # Die Schleife ist ausgelaufen, OHNE dass 304/204/ein Fehler kam --
+        # das Sicherheitslimit wurde erreicht, während die Warteschlange
+        # nachweislich noch nicht leer war (ENTSCHEIDUNGSLOG E16: Code-Review
+        # fand das bei Tesla/EnBW/hhenergienetz in 2,7-5,3% aller Läufe, ohne
+        # dass es je geloggt wurde). Kein Datenverlust -- if_modified_since
+        # ist gespeichert und der Rest wird beim naechsten Lauf nachgeholt --
+        # aber es soll sichtbar sein statt kommentarlos abgeschnitten zu werden.
+        print(f"Warnung: {name} hat das Sicherheitslimit von {MAX_PAKETE_PRO_FEED} "
+              f"Paketen erreicht, ohne dass die Warteschlange als leer gemeldet "
+              f"wurde (kein 304/204). Es koennten noch weitere Pakete im Puffer "
+              f"liegen -- werden beim naechsten Lauf nachgeholt.\n")
 
     print(f"Erfolg! {n_gespeichert} Paket(e) für {name} gespeichert.\n")
     return status
