@@ -10,7 +10,7 @@ Build-Intervention-Evaluation-Zyklen (Stage 2) am IT-Artefakt.*
 
 **Entscheidung:** Zwei zusätzliche Mobilithek-Abonnements (Eco-Movement statisch/dynamisch) in die Pipeline aufgenommen.
 
-**Begründung:** Eco-Movement ist ein kommerzieller Daten-Aggregator und in der Arbeit als Make-or-Buy-Option diskutiert (Interview-Leitfaden, Block C.3). Die Aufnahme erlaubt einen empirischen Vergleich: Wie viel zusätzliche Abdeckung liefert ein Aggregator gegenüber den direkten Betreiber-Feeds?
+**Begründung:** Die bisherige Abdeckung war zu niedrig; auf der Suche nach weiteren auf der Mobilithek verfügbaren Anbietern wurde das AFIR-Pflichtdatenangebot von Eco-Movement gefunden und aufgenommen. Da Eco-Movement zugleich ein kommerzieller Daten-Aggregator ist, liefert die Aufnahme nachträglich auch einen empirischen Anhaltspunkt für die später im Interview (Block C.3) diskutierte Make-or-Buy-Frage: Wie viel zusätzliche Abdeckung liefert ein Aggregator gegenüber den direkten Betreiber-Feeds? (Korrektur 24.07.2026: ursprünglich stand hier fälschlich das Interview als Anlass der Aufnahme; das Interview fand erst am 23.06.2026 statt, elf Tage nach dieser Entscheidung, und kann sie daher nicht motiviert haben.)
 
 **Ergebnis:** Abdeckung stieg von ~30 % auf 42,19 % (Volltext-Methode). Bemerkenswert: Die statische Eco-Movement-Datei ist mit ~467 MB pro Snapshot mit Abstand die größte Quelle — bei täglicher Historisierung ca. 14 GB/Monat, was Speicherstrategie-Fragen aufwirft (Snapshot vs. Differenzspeicherung, vgl. Interviewfrage B.3).
 
@@ -18,7 +18,9 @@ Build-Intervention-Evaluation-Zyklen (Stage 2) am IT-Artefakt.*
 
 **Entscheidung:** Beide Smartlab-AFIR-Abonnements aus dem Crawler entfernt.
 
-**Begründung:** Der Feed lieferte über alle Durchläufe hinweg null auswertbare Göttingen-Standorte, obwohl die Rohdatei >13 MB groß ist und Smartlab-Säulen (u. a. Stadtwerke) auf Endkunden-Karten sichtbar sind. Die alten Rohdateien bleiben als Beleg archiviert. **Der Befund selbst — stadtnahe Betreiber fehlen im amtlichen Meldekanal — ist ein zentrales Ergebnis der Arbeit, nicht nur ein technischer Defekt** (vgl. Interview Block C.2).
+**Begründung:** Der Feed lieferte über alle Durchläufe hinweg null auswertbare Göttingen-Standorte, obwohl die Rohdatei bundesweit 845 Standorte über 59 Städte umfasst (u. a. Hannover mit 20 Standorten), und Smartlab-Säulen (u. a. Stadtwerke) auf Endkunden-Karten sichtbar sind. Die alten Rohdateien bleiben als Beleg archiviert. **Der Befund selbst — stadtnahe Betreiber fehlen im amtlichen Meldekanal — ist ein zentrales Ergebnis der Arbeit, nicht nur ein technischer Defekt.** (Korrektur 24.07.2026: Der ursprüngliche Verweis "vgl. Interview Block C.2" suggerierte einen Bezug zum durchgeführten Interview; dieser Eintrag stammt vom 12.06.2026, elf Tage vor dem Interview am 23.06.2026, der Befund beruht ausschließlich auf der Pipeline-Auswertung selbst.)
+
+**Nachtrag (24.07.2026):** Die Aussage „Smartlab-Säulen (u. a. Stadtwerke) auf Endkunden-Karten sichtbar" ist in diesem Eintrag nie belegt worden (kein Portal, kein Datum, kein Screenshot) und wurde beim Verfassen von Kapitel 4.2 auf Nachfrage als ungeprüft erkannt. Die tatsächlich verifizierte Endkundenkarten-Beobachtung steckt in E5 (m8mit.de/stations) und betrifft andere Betreiber (EWE Go GmbH, Pfalzwerke AG), nicht Smartlab oder Stadtwerke Göttingen. Der harte, weiterhin gültige Befund dieses Eintrags bleibt: null auswertbare Göttingen-Treffer trotz 845 bundesweiten Standorten im Feed (Korrektur 24.07.2026: vorher stand hier ">13-MB-Rohdatei", Dateigröße allein begründet nicht, warum Göttingen zu erwarten wäre; die Standortzahl aus data/smartlab_afir_static_20260605_230832.json tut das). Die Endkundenkarten-Behauptung sollte nicht mehr als belegt zitiert werden, solange sie nicht unabhängig verifiziert ist.
 
 ## E3 — 12.06.2026: Getrennte Ausweisung von ID- und Heuristik-Treffern
 
@@ -65,6 +67,8 @@ Pro Anbieter (Datensatz-Ebene): Eco-Movement 28 Punkte (16 Göttingen-Standorte)
 **Methodische Einordnung:** Die Aufnahme von chargecloud folgt derselben Logik wie E1 (Erweiterung um einen Aggregator-Feed), ist aber anders motiviert: Während Eco-Movement (E1) als Make-or-Buy-Vergleich aufgenommen wurde, ist chargecloud eine direkte Reaktion auf eine identifizierte Abdeckungslücke. Im ADR-Rahmen entspricht das einem weiteren BIE-Zyklus: Problem erkannt (fehlende Stadtwerke) → Artefakt erweitert (neues Abo) → Wirkung evaluiert (Abdeckungsrate).
 
 **Ergänzender Befund — m8mit:** Parallel wurde festgestellt, dass auf der Kartenansicht m8mit.de/stations weitere Betreiber für den Raum Göttingen sichtbar sind (u. a. EWE Go GmbH, Pfalzwerke AG), deren Mobilithek-Feeds jedoch keine Göttingen-Daten liefern. Diese Betreiber sind im BNetzA-Register mit jeweils 2–6 Einträgen vertreten. Das Muster entspricht dem aus E2 bekannten Smartlab-Befund: Endkunden-Karten und amtlicher Meldekanal divergieren. Die betroffenen Betreiber machen einen Teil der verbleibenden ~15 % Abdeckungslücke aus; sie sind über den gewählten Ansatz strukturell nicht schließbar.
+
+**Nachtrag (24.07.2026):** Diese Aussage zu EWE Go GmbH und Pfalzwerke AG muss korrigiert werden. Beim Beheben eines Bugs in `extract_stammdaten.py` (`extract_operator()` las den Betreiber nur auf Site-Ebene, nicht wie nötig auch auf Stations-Ebene, siehe Fix vom 24.07.2026) zeigte sich, dass beide Betreiber tatsächlich über den hhenergienetz-Feed mit Göttingen-Ladepunkten vertreten sind (EWE Go GmbH: 6 Ladepunkte, Pfalzwerke AG: 4 Ladepunkte, Stand 24.07.2026), bisher aber ohne erkennbaren Betreibernamen erschienen. Beide waren also durchgehend Teil der 317 Göttinger Ladepunkte und der 84,9-%-Abdeckung, nicht Teil der unschließbaren Lücke. Die ~15-%-Restlücke besteht dem Grunde nach weiterhin, ihre genaue Größe und die tatsächlich fehlenden Betreiber müssten aber neu identifiziert werden, da die beiden bisher genannten Beispiele nicht mehr tragen.
 
 **Strukturelle Erkenntnis zur EVSE-ID-Quote:** Die EVSE-ID-basierte Trefferrate verbleibt bei 26,6 % (51/192), obwohl chargecloud 222 `DE*GOE*`-Ladepunkte enthält. Ursache: Die BNetzA hat für 121 der 192 Göttinger Ladeeinrichtungen (63 %) gar keine EVSE-IDs im Register eingetragen — diese Punkte sind per Definition nur über Adress-Matching erreichbar. Die maximale erreichbare ID-Trefferrate liegt damit strukturell bei ~37 %. Die 26,6 % entsprechen 68 % der ID-fähigen BNetzA-Punkte — ein plausibler Wert.
 
@@ -354,3 +358,66 @@ Die Korrektur ist bewusst moderat: Sie bereinigt einen konkret identifizierten, 
 - **`totalMaximumPower`, `serviceType`, `authenticationAndIdentificationMethods`:** vorhanden, aber ohne erkennbaren Mehrwert für die aktuelle Occupancy-fokussierte Auswertung, daher nicht ergänzt.
 
 **Methodische Einordnung:** Dieser Befund zeigt einen Rückkopplungseffekt zwischen Schreibarbeit und Artefakt, der im ADR-Rahmen selten explizit dokumentiert wird. Die theoretische Auseinandersetzung mit der Spezifikation für Kapitel 2.3 deckte zwei Lücken auf, die reine Code-Reviews (E16) nicht gefunden hatten, weil sie kein Wissen über die vollständige Enum bzw. die verfügbaren Location-Felder voraussetzten. Für die Methodenkritik in Kapitel 5 ein Beleg dafür, dass Theoriearbeit und Implementierung in einem ADR-Projekt wechselseitig aufeinander einwirken, nicht nur wie in Stage 1 vorgesehen von der Theorie zum Artefakt, sondern auch zurück.
+
+## E18 (KANDIDAT, 24.07.2026): Waisen-Ladepunkte — Status-Events ohne Stammdaten wegen Feed-Zeitversatz
+
+> Status: KANDIDAT, beim Verfassen von Kapitel 4.2 durch Daniel entdeckt und auf seine Bitte
+> dokumentiert. Noch nicht als Design-Änderung umgesetzt; erst prüfen, wie damit umgegangen werden soll.
+
+**Anlass:** Bei der Prüfung, ob unplausible „Phantom"-Ladevorgänge (Vor-E12-Artefakte, terminieren am
+E12-Baseline-Snapshot 21.07.) in `belegt_stunden`/`occupancy_rate` durchsickern, stellte sich heraus:
+Sie tun es nicht (Plausibilitätsfilter greift vor der Aggregation, E16-Mechanismus bucht sie in
+`unklar_quote_prozent`). Dabei fiel aber auf, dass vier EVSE-IDs in `ladevorgaenge_goettingen.csv` bzw.
+`statusaenderungen_goettingen.csv` auftauchen, die in `stammdaten_goettingen.csv` und damit in
+`kennzahlen_ladepunkte.csv` fehlen.
+
+**Befund:** Vier „Waisen"-Ladepunkte (Status-Events vorhanden, kein Stammdatensatz):
+- `DE*GOE*E00126*001` (15 Events, erste Erfassung 16.07.), `DE*GOE*E00126*002` (11 Events, ab 21.07.),
+  `DE*GOE*E00128*001` (1 Event, ab 21.07.) — alle chargecloud.
+- `340` (ecomovement, 1 „available"-Event, 26.06.) — separater Fall, s. u.
+
+**Ursache (chargecloud, 3 Punkte):** Kein Bug in der Filterlogik, sondern ein Zeitversatz zwischen den
+Feed-Typen. Der statische Feed wird monatlich abgerufen (letzter Snapshot 25.06.2026), der dynamische
+alle 5 Minuten. Die drei Punkte gingen NACH dem 25.06. neu in Betrieb: Der statische Feed enthält im
+Bereich E0012x nur E00120–E00123, nicht E00126/E00128 (exakt geprüft, nicht per Substring). Der
+dynamische Feed erfasste ihre Status-Events ab Mitte Juli. In `extract_zeitreihe.py` matchen sie über
+die Site-/Station-Ebene auf Göttingen (ihre Station existiert aus dem 25.06.-Stammdatensatz), ihre
+eigene Ladepunkt-EVSE-ID hat aber noch keinen Stammdatensatz. Beim Join in `berechne_kennzahlen.py`
+fallen sie deshalb still heraus.
+
+**Ursache (ecomovement `340`, 1 Punkt):** Anderer Mechanismus — eine auffällig kurze, vermutlich
+verstümmelte Ladepunkt-ID mit einem einzigen „available"-Event, über die Station gematcht. Reines
+Datenqualitätsproblem des Anbieters, kein Ladevorgang, ohne Einfluss auf die Kennzahlen.
+
+**Wirkung:** Klein (4 von 317+ Punkten, davon nur 2 mit überhaupt einem Ladevorgang-Intervall,
+letztere ausschließlich unplausibel/Vor-E12). Konsequenz ist eine leichte Inkonsistenz zwischen
+`ladevorgaenge_goettingen.csv`/`statusaenderungen_goettingen.csv` (kennen die Waisen) und
+`kennzahlen_ladepunkte.csv`/`stammdaten_goettingen.csv` (kennen sie nicht).
+
+**Methodische Einordnung:** Dies ist die zeitliche Kehrseite der Historisierung und derselben
+statisch/dynamisch-Divergenz, die schon E4 (Adress-Ablageorte) und E13 zeigten, nur auf der Ebene der
+Ladepunkt-EXISTENZ: Der schnell getaktete dynamische Feed kennt Ladepunkte, die der monatliche
+statische Feed noch nicht als Stammdaten führt. Für Kapitel 4 (Datenqualität) bzw. 5 (Limitationen) ein
+Beleg, dass Feed-Aktualität selbst eine Datenqualitätsdimension ist (Timeliness bei Wang & Strong).
+
+**Offene Frage / mögliche Maßnahmen (noch zu entscheiden):**
+1. Statischen Feed häufiger abrufen (z. B. wöchentlich statt monatlich) — würde den Versatz verkürzen,
+   erhöht aber den Speicherbedarf (chargecloud-Stammdaten sind groß).
+2. Einen frischen statischen Abruf JETZT auslösen — würde die 3 chargecloud-Punkte vermutlich sofort
+   mit Stammdaten versorgen (unbestätigt).
+3. Waisen-Events beim Join explizit ausweisen statt still zu verwerfen (z. B. Warnung/Zähler in
+   `berechne_kennzahlen.py`), analog zum Logging in E16, damit die Inkonsistenz sichtbar bleibt.
+4. Bewusst so belassen und nur in den Limitationen erwähnen (Wirkung ist minimal).
+
+**Verifikation (24.07.2026):** Ein gezielter frischer Abruf des statischen chargecloud-Feeds (manuell,
+ohne If-Modified-Since-Header = neuestes Voll-Paket, ohne Lock/Status-Datei, um den parallel laufenden
+Cron-dyn-Crawler nicht zu stören) bestätigt die Ursache: Der neue Snapshot
+`chargecloud_stat_20260724_181248.json` (Last-Modified 24.07. 16:07) enthält jetzt alle drei zuvor
+fehlenden Punkte E00126*001, E00126*002 und E00128*001. Damit ist belegt, dass es ein reiner
+Feed-Zeitversatz war (Maßnahme 2 wirkt) und kein Parser-Fehler. Sobald `extract_stammdaten.py` erneut
+läuft, liest es diesen Snapshot mit und die drei Punkte erhalten Stammdatenzeilen; sie fallen dann
+nicht mehr aus `kennzahlen_ladepunkte.csv`. Der ecomovement-Fall `340` bleibt hiervon unberührt
+(separates ID-Datenqualitätsproblem). **Empfehlung für die laufende Entscheidung:** Maßnahme 1
+(statischen Abruf von monatlich auf z. B. wöchentlich verdichten) würde solche Versätze künftig auf
+höchstens eine Woche begrenzen; Maßnahme 3 (Waisen beim Join zählen/loggen statt still verwerfen)
+bleibt unabhängig davon sinnvoll, um die Inkonsistenz überhaupt sichtbar zu machen.

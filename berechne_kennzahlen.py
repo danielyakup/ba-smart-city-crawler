@@ -351,6 +351,26 @@ if __name__ == "__main__":
     ausfaelle = segmentiere_ausfaelle(zeitreihe)
     kennzahlen, start, ende, verlaesslich_start = aggregiere_kennzahlen(events, ausfaelle, zeitreihe, stammdaten)
 
+    # Waisen-Ladepunkte sichtbar machen (ENTSCHEIDUNGSLOG E18): Der Join in
+    # aggregiere_kennzahlen() geht von den Stammdaten aus (Left-Join), sodass
+    # Ladepunkte mit Status-Events, aber ohne Stammdatenzeile still aus
+    # kennzahlen_ladepunkte.csv herausfallen. Ursache ist der Feed-Zeitversatz:
+    # Der monatliche statische Feed kennt kürzlich neu in Betrieb genommene
+    # Ladepunkte noch nicht, während der 5-Minuten-Feed sie bereits erfasst.
+    # Statt das stillschweigend zu verwerfen, wird es hier gezählt und geloggt.
+    stammdaten_ids = set(stammdaten["evse_id"])
+    zeitreihe_ids = set(zeitreihe["evse_id"])
+    waisen = sorted(zeitreihe_ids - stammdaten_ids)
+    if waisen:
+        waisen_mit_event = sorted(set(events["evse_id"]) & set(waisen)) if not events.empty else []
+        print(f"\nWARNUNG (E18): {len(waisen)} Ladepunkt(e) mit Status-Events, aber ohne "
+              f"Stammdaten -- fallen aus kennzahlen_ladepunkte.csv heraus "
+              f"(vermutlich Feed-Zeitversatz, statischen Feed neu abrufen).")
+        print(f"  Betroffene EVSE-IDs: {', '.join(waisen)}")
+        if waisen_mit_event:
+            print(f"  Davon mit mindestens einem Ladevorgang-Intervall: "
+                  f"{', '.join(waisen_mit_event)}")
+
     # Event-Ebene speichern (Export-Ebene 2 aus dem Interview: Nutzung)
     events_pfad = os.path.join(ORDNER, "ladevorgaenge_goettingen.csv")
     events.to_csv(events_pfad, sep=";", index=False, encoding="utf-8-sig")

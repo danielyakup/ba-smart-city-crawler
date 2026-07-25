@@ -51,4 +51,4 @@ Alle Feeds nutzen DATEX II v3 / AFIR (`payload → aegiEnergyInfrastructureTable
 ## Umgang mit den Datendateien
 
 - Die statischen JSONs sind bis zu **508 MB** groß (hhenergienetz; Eco-Movement ~467 MB). Niemals per `cat`/Read komplett ausgeben; zum Inspizieren `head -c`, gezielte Python-Snippets oder `json.load` eine Datei nach der anderen mit anschließendem `del`/`gc.collect()` (VM hat ~8 GB RAM).
-- Die alten Smartlab-Dateien in `data/` sind **Belege für die Thesis** (Betreiber fehlt im amtlichen Meldekanal trotz 13-MB-Feed) — nicht löschen, obwohl die Smartlab-Abos aus `main.py` entfernt wurden.
+- Die alten Smartlab-Dateien in `data/` sind **Belege für die Thesis** (Betreiber fehlt im amtlichen Meldekanal trotz 845 bundesweiten Standorten im Feed, davon 0 in Göttingen) — nicht löschen, obwohl die Smartlab-Abos aus `main.py` entfernt wurden.

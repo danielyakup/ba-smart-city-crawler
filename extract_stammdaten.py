@@ -104,10 +104,18 @@ def first_value(multilang):
     return str(values[0].get("value", "")) if values else ""
 
 
-def extract_operator(site):
-    """Betreibername der Site (afacAnOrganisation.name)."""
+def extract_operator(site, station=None):
+    """Betreibername. Erst auf Site-Ebene versucht, sonst Fallback auf die
+    Station: HH Energienetz legt den Betreiber wie schon die Adresse (siehe
+    extract_addresses) eine Ebene tiefer an der Station statt an der Site ab."""
     org = site.get("operator", {}).get("afacAnOrganisation", {})
-    return first_value(org.get("name"))
+    name = first_value(org.get("name"))
+    if name:
+        return name
+    if station is not None:
+        org = station.get("operator", {}).get("afacAnOrganisation", {})
+        return first_value(org.get("name"))
+    return ""
 
 
 def extract_rows(site, anbieter):
@@ -158,7 +166,7 @@ def extract_rows(site, anbieter):
                 "station_id": station.get("idG", ""),
                 "site_id": site.get("idG", ""),
                 "site_name": first_value(site.get("name")),
-                "betreiber": extract_operator(site),
+                "betreiber": extract_operator(site, station),
                 "strasse": strasse,
                 "plz": plz,
                 "stadt": stadt,
