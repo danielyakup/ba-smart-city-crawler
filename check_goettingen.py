@@ -10,7 +10,7 @@ if not json_files:
     print("Keine JSON-Dateien im Ordner 'data/' gefunden.")
     exit()
 
-goettingen_sites = []
+sites_zielstadt = []
 total_sites_all_files = 0
 
 for file_path in json_files:
@@ -54,15 +54,15 @@ for file_path in json_files:
                             site_name = info_values[0].get("value", "Unbekannter Ladepark")
 
                     # Filter-Logik für Göttingen
-                    is_goettingen = (
+                    is_targetcity = (
                         "göttingen" in city_name.lower() or 
                         "goettingen" in city_name.lower() or 
                         postcode.startswith("3707") or 
                         postcode.startswith("3708")
                     )
                     
-                    if is_goettingen:
-                        goettingen_sites.append({
+                    if is_targetcity:
+                        sites_zielstadt.append({
                             "file": filename,
                             "name": site_name,
                             "city": city_name,
@@ -75,7 +75,7 @@ for file_path in json_files:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content_str = f.read().lower()
                 if "göttingen" in content_str or "goettingen" in content_str:
-                    goettingen_sites.append({
+                    sites_zielstadt.append({
                         "file": filename,
                         "name": "Spezifische Struktur (Fallback-Treffer)",
                         "city": "Göttingen (Match)",
@@ -86,12 +86,12 @@ for file_path in json_files:
 
 print(f"=== AKTUALISIERTES ERGEBNIS ===")
 print(f"Gescannte Ladeparks/Infrastrukturen über alle Dateien: {total_sites_all_files}")
-print(f"Tatsächliche Treffer im Stadtgebiet Göttingen: {len(goettingen_sites)}")
+print(f"Tatsächliche Treffer im Stadtgebiet Göttingen: {len(sites_zielstadt)}")
 print(f"===============================\n")
 
-if goettingen_sites:
+if sites_zielstadt:
     print("Gefundene Göttingen-Infrastrukturen (Auszug):")
-    for i, match in enumerate(goettingen_sites[:30], 1):
+    for i, match in enumerate(sites_zielstadt[:30], 1):
         print(f"{i}. [{match['file']}] {match['name']} ({match['zip']} {match['city']})")
 else:
     print("Auch mit tieferer Analyse keine direkten Göttingen-Infrastrukturen extrahierbar.")

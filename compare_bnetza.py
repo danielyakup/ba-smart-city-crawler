@@ -32,7 +32,7 @@ def normalize_id(value):
     return re.sub(r"[^A-Z0-9]", "", str(value).upper())
 
 
-def is_goettingen(city, postcode):
+def is_targetcity(city, postcode):
     """Prüft, ob ein Datensatz im Stadtgebiet Göttingen liegt."""
     c = city.lower()
     return (
@@ -211,7 +211,7 @@ for file_path in json_files:
         all_ids |= extract_evse_ids(site)
         site_in_goe = False
         for city, postcode, streets in extract_addresses(site):
-            if is_goettingen(city, postcode):
+            if is_targetcity(city, postcode):
                 site_in_goe = True
                 for s in streets:
                     cs = clean_street(s)

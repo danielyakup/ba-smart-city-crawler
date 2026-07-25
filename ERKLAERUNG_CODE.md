@@ -242,7 +242,7 @@ Diese drei Skripte setzen die Interview-Anforderungen um (Exportfunktion, Occupa
 Geht alle **statischen** Feeds durch (dieselbe Parsing-Logik wie `compare_bnetza.py`: `iter_sites`, `extract_addresses`, `normalize_id` — bewusst kopiert statt importiert, damit jedes Skript für sich lesbar bleibt) und schreibt **eine Zeile pro Ladepunkt**: EVSE-ID, Adresse, Betreiber, Leistung in kW, AC/DC, Steckertypen.
 
 Zwei Dinge sind besonders:
-- **Der Göttingen-Filter passiert hier**, nicht später: Nur Standorte, deren eigene Adresse in Göttingen liegt, kommen in die Tabelle. Die bundesweiten Rohdaten in `data/` bleiben unberührt — für eine andere Stadt müsste man nur `is_goettingen()` austauschen.
+- **Der Göttingen-Filter passiert hier**, nicht später: Nur Standorte, deren eigene Adresse in Göttingen liegt, kommen in die Tabelle. Die bundesweiten Rohdaten in `data/` bleiben unberührt — für eine andere Stadt müsste man nur `is_targetcity()` austauschen.
 - Neben der EVSE-ID werden auch **Station- und Site-ID mitgespeichert**. Das sind die „Join-Schlüssel": Skript 2 braucht sie, um Belegungs-Updates dem richtigen Ladepunkt zuzuordnen, denn die Anbieter referenzieren in den dynamischen Feeds mal den Punkt, mal die Station.
 
 Ergebnis: `stammdaten_goettingen.csv` mit 317 Ladepunkten.

@@ -8,7 +8,7 @@ dynamischen Belegungsdaten dienen.
 Der Göttingen-Filter passiert bewusst HIER (bei der Extraktion) und nicht erst
 im Export: Die stat-Feeds sind bundesweit und bis zu 542 MB groß — ungefiltert
 wären das Millionen Zeilen. Die rohen Snapshots in data/ bleiben unangetastet,
-für eine andere Stadt muss nur is_goettingen() ersetzt werden.
+für eine andere Stadt muss nur is_targetcity() ersetzt werden.
 
 Aufruf:  venv/bin/python extract_stammdaten.py
 Ausgabe: auswertung/stammdaten_goettingen.csv
@@ -32,7 +32,7 @@ def normalize_id(value):
     return re.sub(r"[^A-Z0-9]", "", str(value).upper())
 
 
-def is_goettingen(city, postcode):
+def is_targetcity(city, postcode):
     """Prüft, ob ein Datensatz im Stadtgebiet Göttingen liegt."""
     c = city.lower()
     return (
@@ -131,14 +131,14 @@ def extract_rows(site, anbieter):
     # alte "erster Treffer gewinnt"-Logik hätte sonst immer den koordinatenlosen
     # Site-Treffer genommen, weil er zuerst in der Liste steht.
     stadt, plz, strasse, breitengrad, laengengrad = "", "", "", "", ""
-    goettingen_treffer = [
+    treffer_zielstadt = [
         (city, postcode, streets, lat, lon)
         for city, postcode, streets, lat, lon in extract_addresses(site)
-        if is_goettingen(city, postcode)
+        if is_targetcity(city, postcode)
     ]
-    if goettingen_treffer:
+    if treffer_zielstadt:
         city, postcode, streets, lat, lon = next(
-            (t for t in goettingen_treffer if t[3] and t[4]), goettingen_treffer[0]
+            (t for t in treffer_zielstadt if t[3] and t[4]), treffer_zielstadt[0]
         )
         stadt, plz = city, postcode
         strasse = streets[0] if streets else ""
@@ -219,7 +219,7 @@ if __name__ == "__main__":
             # Nur Sites, deren eigene Adresse in Göttingen liegt (siehe E4:
             # kein Volltext-Matching, sonst Scheintreffer anderer Städte)
             if not any(
-                is_goettingen(city, postcode)
+                is_targetcity(city, postcode)
                 for city, postcode, _, _, _ in extract_addresses(site)
             ):
                 continue
