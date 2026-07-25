@@ -32,15 +32,18 @@ def normalize_id(value):
     return re.sub(r"[^A-Z0-9]", "", str(value).upper())
 
 
+# Ortsbezogene Konfiguration: Nur diese beiden Konstanten sind auszutauschen,
+# wenn die Pipeline auf eine andere Kommune angewendet werden soll.
+STADTNAMEN = ("göttingen", "goettingen")
+PLZ_PRAEFIXE = ("3707", "3708")
+
+
 def is_targetcity(city, postcode):
-    """Prüft, ob ein Datensatz im Stadtgebiet Göttingen liegt."""
+    """Prüft, ob ein Datensatz im Gebiet der untersuchten Stadt liegt.
+    Ortsname und Postleitzahl werden verodert, weil manche Anbieter nur
+    eines der beiden Felder befüllen."""
     c = city.lower()
-    return (
-        "göttingen" in c
-        or "goettingen" in c
-        or postcode.startswith("3707")
-        or postcode.startswith("3708")
-    )
+    return any(name in c for name in STADTNAMEN) or postcode.startswith(PLZ_PRAEFIXE)
 
 
 # 1. BNetzA Excel einlesen ---------------------------------------------------
