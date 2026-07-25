@@ -19,3 +19,6 @@ auswertung/
 
 # Cron-Logs
 cron_*.log
+
+# Streamlit-Log
+streamlit.log

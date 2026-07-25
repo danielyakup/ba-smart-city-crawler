@@ -29,19 +29,19 @@ st.set_page_config(page_title="Ladeinfrastruktur Göttingen", page_icon="🔌", 
 def lade_daten():
     """Liest die Export-Ebenen der Pipeline ein."""
     stammdaten = pd.read_csv(
-        os.path.join(ORDNER, "stammdaten_goettingen.csv"), sep=";", encoding="utf-8-sig"
+        os.path.join(ORDNER, "stammdaten_targetcity.csv"), sep=";", encoding="utf-8-sig"
     )
     events = pd.read_csv(
-        os.path.join(ORDNER, "ladevorgaenge_goettingen.csv"), sep=";", encoding="utf-8-sig"
+        os.path.join(ORDNER, "ladevorgaenge_targetcity.csv"), sep=";", encoding="utf-8-sig"
     )
     ausfaelle = pd.read_csv(
-        os.path.join(ORDNER, "ausfaelle_goettingen.csv"), sep=";", encoding="utf-8-sig"
+        os.path.join(ORDNER, "ausfaelle_targetcity.csv"), sep=";", encoding="utf-8-sig"
     )
     kennzahlen = pd.read_csv(
         os.path.join(ORDNER, "kennzahlen_ladepunkte.csv"), sep=";", encoding="utf-8-sig"
     )
     zeitreihe = pd.read_csv(
-        os.path.join(ORDNER, "statusaenderungen_goettingen.csv"), sep=";", encoding="utf-8-sig"
+        os.path.join(ORDNER, "statusaenderungen_targetcity.csv"), sep=";", encoding="utf-8-sig"
     )
     # Zeitstempel für Anzeige und Diagramme in lokale Zeit umrechnen
     # (format="mixed": die CSV enthält Zeitstempel mit und ohne Millisekunden)
@@ -226,17 +226,17 @@ st.caption(
 export1, export2, export3, export4, export5 = st.columns(5)
 export1.download_button(
     "Stammdaten (CSV)", csv_bytes(stammdaten),
-    "stammdaten_goettingen.csv", "text/csv",
+    "stammdaten_targetcity.csv", "text/csv",
     help="Eine Zeile pro Ladepunkt: Adresse, Betreiber, Leistung",
 )
 export2.download_button(
     "Ladevorgänge (CSV)", csv_bytes(events.drop(columns=["start_lokal", "ende_lokal"])),
-    "ladevorgaenge_goettingen.csv", "text/csv",
+    "ladevorgaenge_targetcity.csv", "text/csv",
     help="Ein beobachteter Ladevorgang pro Zeile: Start, Ende, Dauer",
 )
 export3.download_button(
     "Ausfälle (CSV)", csv_bytes(ausfaelle.drop(columns=["start_lokal", "ende_lokal"])),
-    "ausfaelle_goettingen.csv", "text/csv",
+    "ausfaelle_targetcity.csv", "text/csv",
     help="Eine beobachtete Außer-Betrieb-Phase pro Zeile: Start, Ende, Dauer",
 )
 export4.download_button(
@@ -246,7 +246,7 @@ export4.download_button(
 )
 export5.download_button(
     "Gesamtpaket (Excel)", excel_bytes(stammdaten, events, ausfaelle, kennzahlen),
-    "ladeinfrastruktur_goettingen.xlsx",
+    "ladeinfrastruktur_targetcity.xlsx",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     help="Alle Ebenen als eine Excel-Datei mit je einem Blatt",
 )
@@ -268,5 +268,5 @@ with st.expander("Rohzeitreihe (alle beobachteten Statusänderungen)"):
     st.dataframe(zeitreihe.head(500), width='stretch', hide_index=True)
     st.download_button(
         "Rohzeitreihe (CSV)", csv_bytes(zeitreihe),
-        "statusaenderungen_goettingen.csv", "text/csv",
+        "statusaenderungen_targetcity.csv", "text/csv",
     )

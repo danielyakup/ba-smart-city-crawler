@@ -34,10 +34,10 @@ Wochen mit unvollständiger Datengrundlage besteht (Tesla komplett ausgefallen
 bis E12, hhenergienetz durch einen weiteren Bug bis E13, 30-Minuten-Raster
 bis E8).
 
-Voraussetzung: auswertung/statusaenderungen_goettingen.csv + stammdaten_goettingen.csv
+Voraussetzung: auswertung/statusaenderungen_targetcity.csv + stammdaten_targetcity.csv
 Aufruf:        venv/bin/python berechne_kennzahlen.py
-Ausgabe:       auswertung/ladevorgaenge_goettingen.csv   (Event-Ebene, Nutzung)
-               auswertung/ausfaelle_goettingen.csv       (Event-Ebene, Störung)
+Ausgabe:       auswertung/ladevorgaenge_targetcity.csv   (Event-Ebene, Nutzung)
+               auswertung/ausfaelle_targetcity.csv       (Event-Ebene, Störung)
                auswertung/kennzahlen_ladepunkte.csv      (Aggregat-Ebene)
 """
 
@@ -113,7 +113,7 @@ def lade_zeitreihe():
     liefern unterschiedliche ISO-Formate, teils mit/ohne Zeitzone —
     utc=True normalisiert alles auf UTC)."""
     df = pd.read_csv(
-        os.path.join(ORDNER, "statusaenderungen_goettingen.csv"),
+        os.path.join(ORDNER, "statusaenderungen_targetcity.csv"),
         sep=";", encoding="utf-8-sig",
     )
     df["zeit"] = pd.to_datetime(df["geaendert_am"], utc=True, format="mixed", errors="coerce")
@@ -340,7 +340,7 @@ if __name__ == "__main__":
 
     zeitreihe = lade_zeitreihe()
     stammdaten = pd.read_csv(
-        os.path.join(ORDNER, "stammdaten_goettingen.csv"),
+        os.path.join(ORDNER, "stammdaten_targetcity.csv"),
         sep=";", encoding="utf-8-sig",
     )
 
@@ -372,11 +372,11 @@ if __name__ == "__main__":
                   f"{', '.join(waisen_mit_event)}")
 
     # Event-Ebene speichern (Export-Ebene 2 aus dem Interview: Nutzung)
-    events_pfad = os.path.join(ORDNER, "ladevorgaenge_goettingen.csv")
+    events_pfad = os.path.join(ORDNER, "ladevorgaenge_targetcity.csv")
     events.to_csv(events_pfad, sep=";", index=False, encoding="utf-8-sig")
 
     # Event-Ebene Ausfälle (ENTSCHEIDUNGSLOG E10: Störung getrennt von Nutzung)
-    ausfaelle_pfad = os.path.join(ORDNER, "ausfaelle_goettingen.csv")
+    ausfaelle_pfad = os.path.join(ORDNER, "ausfaelle_targetcity.csv")
     ausfaelle.to_csv(ausfaelle_pfad, sep=";", index=False, encoding="utf-8-sig")
 
     # Aggregat-Ebene speichern (Export-Ebene 3)

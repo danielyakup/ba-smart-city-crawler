@@ -11,7 +11,7 @@ wären das Millionen Zeilen. Die rohen Snapshots in data/ bleiben unangetastet,
 für eine andere Stadt muss nur is_targetcity() ersetzt werden.
 
 Aufruf:  venv/bin/python extract_stammdaten.py
-Ausgabe: auswertung/stammdaten_goettingen.csv
+Ausgabe: auswertung/stammdaten_targetcity.csv
 """
 
 import os
@@ -21,7 +21,7 @@ import glob
 import json
 import csv
 
-AUSGABE_DATEI = os.path.join("auswertung", "stammdaten_goettingen.csv")
+AUSGABE_DATEI = os.path.join("auswertung", "stammdaten_targetcity.csv")
 
 
 # --- Hilfsfunktionen (übernommen aus compare_bnetza.py, dort erprobt) --------

@@ -17,9 +17,9 @@ hhenergienetz fast den ganzen Bestand pro Nachricht republiziert, würden ohne
 die Bereinigung in `entferne_wiederholte_status()` (ENTSCHEIDUNGSLOG E16)
 viele Zeilen entstehen, die keine echte Statusänderung sind.
 
-Voraussetzung: auswertung/stammdaten_goettingen.csv (aus extract_stammdaten.py)
+Voraussetzung: auswertung/stammdaten_targetcity.csv (aus extract_stammdaten.py)
 Aufruf:        venv/bin/python extract_zeitreihe.py
-Ausgabe:       auswertung/statusaenderungen_goettingen.csv
+Ausgabe:       auswertung/statusaenderungen_targetcity.csv
 """
 
 import os
@@ -28,8 +28,8 @@ import csv
 import glob
 import json
 
-STAMMDATEN_DATEI = os.path.join("auswertung", "stammdaten_goettingen.csv")
-AUSGABE_DATEI = os.path.join("auswertung", "statusaenderungen_goettingen.csv")
+STAMMDATEN_DATEI = os.path.join("auswertung", "stammdaten_targetcity.csv")
+AUSGABE_DATEI = os.path.join("auswertung", "statusaenderungen_targetcity.csv")
 
 
 def normalize_id(value):
