@@ -421,3 +421,46 @@ nicht mehr aus `kennzahlen_ladepunkte.csv`. Der ecomovement-Fall `340` bleibt hi
 (statischen Abruf von monatlich auf z. B. wöchentlich verdichten) würde solche Versätze künftig auf
 höchstens eine Woche begrenzen; Maßnahme 3 (Waisen beim Join zählen/loggen statt still verwerfen)
 bleibt unabhängig davon sinnvoll, um die Inkonsistenz überhaupt sichtbar zu machen.
+
+## E19 (25.07.2026): Bezugsgröße präzisiert — 192 Ladeeinrichtungen mit 352 Ladepunkten
+
+**Anlass:** Beim Gegenlesen von Kapitel 5.2 fiel ein Widerspruch auf: Die Arbeit berichtete
+einerseits 84,9 % Abdeckung "der 192 registrierten Ladepunkte", andererseits 317 aus den Feeds
+extrahierte Ladepunkte — mehr, als es angeblich überhaupt registrierte gibt. Daraus wurde in
+Kapitel 4.3.1 sogar ein eigener Befund abgeleitet ("bestätigt die Unvollständigkeit des Registers").
+
+**Befund:** Die Verwechslung liegt in der Struktur des BNetzA-Registers. Die Excel listet
+**Ladeeinrichtungen** (Spalte `Ladeeinrichtungs-ID`), nicht Ladepunkte; die Zahl der Ladepunkte je
+Zeile steht in der eigenen Spalte `Anzahl Ladepunkte`. Für Göttingen ergibt der Filter aus E9:
+
+| Ebene | Wert |
+|---|---|
+| Registerzeilen (Ladeeinrichtungen) | 192 |
+| davon mit 2 Ladepunkten | 141 |
+| mit 1 Ladepunkt | 44 |
+| mit 4 Ladepunkten | 5 |
+| mit 3 Ladepunkten | 2 |
+| **Summe Ladepunkte laut Register** | **352** |
+
+**Konsequenz für die Kennzahlen:** Die 84,9 % bleiben rechnerisch unverändert gültig.
+`compare_bnetza.py` matcht zeilenweise über die `Ladeeinrichtungs-ID`, Zähler und Nenner stammen
+also aus derselben Grundgesamtheit (163 von 192 Zeilen getroffen). Falsch war ausschließlich die
+Bezeichnung: Es ist eine Abdeckung auf Ebene der **Ladeeinrichtungen**. Eine Ladeeinrichtung gilt
+dabei als abgedeckt, sobald sie überhaupt gefunden wurde; ob auch alle ihre Ladepunkte im Feed
+stehen, prüft die Kennzahl nicht.
+
+**Neue, ergänzende Kennzahl:** Auf Ladepunkt-Ebene stehen den 352 im Register gemeldeten Punkten
+317 aus den Feeds extrahierte gegenüber, also rund 90 %. Der frühere Satz "deutlich mehr als die
+192 Registereinträge, was die Unvollständigkeit des Registers bestätigt" war damit sachlich falsch
+und dreht sich bei korrektem Vergleich um: Die Feeds liefern auf Ladepunkt-Ebene **weniger** als
+das Register führt.
+
+**Umgesetzt in der Ausarbeitung:** Abschnitt 4.3.1 (Vergleich auf 317 zu 352 umgestellt und um den
+Hinweis auf die beiden Bezugsebenen ergänzt), Abschnitt 4.3.2 (Bezugsgröße als Ladeeinrichtungen
+benannt), Tabelle 5 Zeile E9 sowie Abschnitt 5.2. Die Formulierung "192 Registereinträge" in E1, E3
+und E5 bleibt unverändert, sie ist ebenenneutral und damit korrekt.
+
+**Methodische Einordnung:** Wie E11/E12 ein Fall korrekter Beobachtung bei falscher Benennung. Der
+Fehler war rein terminologisch, hatte aber einen inhaltlichen Befund erzeugt, der so nicht existiert
+— ein Beleg dafür, dass auch abgeleitete Interpretationen bei jeder Änderung der Bezugsgröße neu zu
+prüfen sind.
