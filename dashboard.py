@@ -29,7 +29,7 @@ BLAU = "#2a78d6"
 
 # Ortsbezug in der ANZEIGE ausblenden (Screenshots für die Thesis).
 # Für den Praxisbetrieb auf False stellen.
-ANONYM = True
+ANONYM = False
 STADT = "der untersuchten Stadt" if ANONYM else "Göttingen"
 
 st.set_page_config(
