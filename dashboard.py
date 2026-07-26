@@ -10,6 +10,11 @@ Export-Pipeline (extract_stammdaten -> extract_zeitreihe -> berechne_kennzahlen)
 vorab berechnet hat.
 
 Aufruf:  venv/bin/streamlit run dashboard.py
+
+ANONYM=True blendet den Ortsbezug aus der Anzeige aus (Titel, Straßennamen,
+Betreiberkürzel in den EVSE-IDs) — gedacht für Screenshots in der schriftlichen
+Ausarbeitung, die die untersuchte Stadt durchgängig umschreibt. Die exportierten
+CSVs bleiben davon unberührt, sie enthalten weiterhin die echten Werte.
 """
 
 import io
@@ -22,7 +27,16 @@ ORDNER = "auswertung"
 # Farbwert für alle Diagramme (einheitlich, eine Serie -> ein Farbton)
 BLAU = "#2a78d6"
 
-st.set_page_config(page_title="Ladeinfrastruktur Göttingen", page_icon="🔌", layout="wide")
+# Ortsbezug in der ANZEIGE ausblenden (Screenshots für die Thesis).
+# Für den Praxisbetrieb auf False stellen.
+ANONYM = True
+STADT = "der untersuchten Stadt" if ANONYM else "Göttingen"
+
+st.set_page_config(
+    page_title=f"Ladeinfrastruktur {STADT}" if ANONYM else "Ladeinfrastruktur Göttingen",
+    page_icon="🔌",
+    layout="wide",
+)
 
 
 @st.cache_data(ttl=300)
@@ -77,8 +91,58 @@ def excel_bytes(stammdaten, events, ausfaelle, kennzahlen):
 stammdaten, events, ausfaelle, kennzahlen, zeitreihe, fenster = lade_daten()
 plausible = events[events["plausibel"]]
 
+# --- Anonymisierung der Anzeige (nur bei ANONYM=True) ----------------------------
+# Feste Zuordnung Straße -> "Standort 01", alphabetisch vergeben, damit derselbe
+# Standort über alle Tabellen und über mehrere Läufe hinweg dieselbe Nummer hat.
+STANDORT_ALIAS = (
+    {
+        strasse: f"Standort {nummer:02d}"
+        for nummer, strasse in enumerate(
+            sorted(stammdaten["strasse"].dropna().unique()), start=1
+        )
+    }
+    if ANONYM
+    else {}
+)
+
+
+def standort_label(strasse):
+    """Anzeigename eines Standorts; bei ANONYM ein neutraler Platzhalter."""
+    return STANDORT_ALIAS.get(strasse, strasse)
+
+
+def maskiere_id(evse_id):
+    """Ersetzt das Betreiberkürzel in der EVSE-ID durch XXX.
+
+    Gleiche Konvention wie in der schriftlichen Ausarbeitung (Tabelle 7):
+    aus 'DE*ABC*E00001*001' wird 'DE*XXX*E00001*001'. IDs ohne Sternchen
+    (UUIDs, Hexketten) tragen kein Betreiberkürzel und bleiben unverändert.
+    """
+    teile = str(evse_id).split("*")
+    if len(teile) >= 3:
+        teile[1] = "XXX"
+        return "*".join(teile)
+    return evse_id
+
+
+def fuer_anzeige(df):
+    """Kopie eines DataFrames mit ausgeblendetem Ortsbezug.
+
+    Wird ausschließlich auf die angezeigten Tabellen angewandt, nicht auf die
+    Daten hinter den Download-Buttons.
+    """
+    if not ANONYM:
+        return df
+    df = df.copy()
+    if "strasse" in df.columns:
+        df["strasse"] = df["strasse"].map(standort_label)
+    if "evse_id" in df.columns:
+        df["evse_id"] = df["evse_id"].map(maskiere_id)
+    return df
+
+
 # --- Kopfbereich ---------------------------------------------------------------
-st.title("🔌 Ladeinfrastruktur Göttingen")
+st.title(f"🔌 Ladeinfrastruktur {STADT}")
 st.caption(
     f"Datenquelle: Mobilithek (DATEX II/AFIR) · Beobachtungszeitraum "
     f"{fenster[0]:%d.%m.%Y} – {fenster[1]:%d.%m.%Y} · "
@@ -109,9 +173,11 @@ standorte = sorted(stammdaten["strasse"].dropna().unique())
 auswahl = st.selectbox(
     "Standort",
     ["— Alle Standorte —"] + standorte,
+    # Die Auswahlwerte bleiben die echten Straßennamen (danach wird gefiltert),
+    # angezeigt wird bei ANONYM der Platzhalter.
     format_func=lambda s: (
         s if s == "— Alle Standorte —"
-        else f"{s}  ({punkte_je_standort[s]} Ladepunkte)"
+        else f"{standort_label(s)}  ({punkte_je_standort[s]} Ladepunkte)"
     ),
 )
 
@@ -145,7 +211,7 @@ st.caption(
     "steht zusätzlich zum Vergleich daneben."
 )
 st.dataframe(
-    punkte[[
+    fuer_anzeige(punkte)[[
         "evse_id", "strasse", "betreiber", "strom_art", "max_leistung_kw",
         "ladevorgaenge", "belegt_stunden", "mittlere_dauer_min", "median_dauer_min",
         "occupancy_rate_verlaesslich_prozent", "occupancy_rate_prozent",
@@ -252,10 +318,11 @@ export5.download_button(
 )
 
 if auswahl != "— Alle Standorte —":
+    beschriftung = standort_label(auswahl)
     st.download_button(
-        f"Nur Auswahl „{auswahl}“ (CSV)",
+        f"Nur Auswahl „{beschriftung}“ (CSV)",
         csv_bytes(punkte),
-        f"kennzahlen_{auswahl.replace(' ', '_').replace('/', '-')}.csv",
+        f"kennzahlen_{beschriftung.replace(' ', '_').replace('/', '-')}.csv",
         "text/csv",
     )
 
@@ -265,7 +332,7 @@ with st.expander("Rohzeitreihe (alle beobachteten Statusänderungen)"):
         "Feinste Export-Ebene: jede beobachtete Statusänderung einzeln — "
         "geeignet für eigene Auswertungen jenseits der fertigen Kennzahlen."
     )
-    st.dataframe(zeitreihe.head(500), width='stretch', hide_index=True)
+    st.dataframe(fuer_anzeige(zeitreihe.head(500)), width='stretch', hide_index=True)
     st.download_button(
         "Rohzeitreihe (CSV)", csv_bytes(zeitreihe),
         "statusaenderungen_targetcity.csv", "text/csv",
