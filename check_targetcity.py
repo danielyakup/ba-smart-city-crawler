@@ -1,8 +1,31 @@
+"""Frueher Erkundungshelfer: zaehlt Ladeparks der Zielstadt in den Snapshots.
+
+ACHTUNG - ueberholt. Dieses Skript stammt aus der Anfangsphase des Projekts
+(vgl. ENTSCHEIDUNGSLOG E1) und ist NICHT die Matching-Methodik der Arbeit.
+Zwei bekannte Schwaechen sind hier bewusst konserviert:
+
+1. Es liest die Adresse nur unter `locPointLocation`. Eco-Movement legt sie
+   unter `locAreaLocation` ab, HH Energienetz eine Ebene tiefer an der Station.
+   Datensaetze dieser Anbieter fallen hier also durchs Raster.
+2. Der Fallback ab Zeile ~80 sucht den Ortsnamen im Dateitext. Diese
+   Volltext-Suche wurde in E3/E4 als Matching-Methode VERWORFEN, weil sie
+   Scheintreffer durch gleichnamige Strassen anderer Staedte erzeugt.
+
+Die belastbare Auswertung leistet `compare_bnetza.py`, die Extraktion fuer die
+Export-Pipeline `extract_stammdaten.py`. Das Skript bleibt als Beleg des
+Entwicklungsverlaufs erhalten.
+"""
+
 import os
 import json
 import glob
 
-print("Starte präzise DATEX II-Analyse der Ladedaten für Göttingen...\n")
+# Ortsbezug wie im uebrigen Projekt in zwei Konstanten ausgelagert, damit das
+# Skript ohne Codeaenderung auf eine andere Kommune zeigt.
+STADTNAMEN = ("göttingen", "goettingen")
+PLZ_PRAEFIXE = ("3707", "3708")
+
+print("Starte DATEX-II-Analyse der Ladedaten fuer die Zielstadt...\n")
 
 json_files = glob.glob("data/*.json")
 
@@ -53,12 +76,10 @@ for file_path in json_files:
                         if info_values:
                             site_name = info_values[0].get("value", "Unbekannter Ladepark")
 
-                    # Filter-Logik für Göttingen
+                    # Filter-Logik der Zielstadt: Ortsname ODER PLZ-Praefix
                     is_targetcity = (
-                        "göttingen" in city_name.lower() or 
-                        "goettingen" in city_name.lower() or 
-                        postcode.startswith("3707") or 
-                        postcode.startswith("3708")
+                        any(name in city_name.lower() for name in STADTNAMEN)
+                        or postcode.startswith(PLZ_PRAEFIXE)
                     )
                     
                     if is_targetcity:
@@ -70,15 +91,18 @@ for file_path in json_files:
                         })
                         
     except Exception as e:
-        # Falls eine Datei (z.B. m8mit oder Tesla) eine andere Struktur hat, nutzen wir einen Fallback-String-Match
+        # VERWORFENE METHODE (ENTSCHEIDUNGSLOG E3/E4): Volltext-Suche ueber den
+        # Dateiinhalt. Sie zaehlt jede Fundstelle des Ortsnamens als Treffer,
+        # auch gleichnamige Strassen in anderen Staedten, und liefert deshalb
+        # eine nicht belastbare Obergrenze. Nur zur Dokumentation erhalten.
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content_str = f.read().lower()
-                if "göttingen" in content_str or "goettingen" in content_str:
+                if any(name in content_str for name in STADTNAMEN):
                     sites_zielstadt.append({
                         "file": filename,
-                        "name": "Spezifische Struktur (Fallback-Treffer)",
-                        "city": "Göttingen (Match)",
+                        "name": "Spezifische Struktur (Fallback-Treffer, unbelastbar)",
+                        "city": "Zielstadt (Volltext-Match)",
                         "zip": "-"
                     })
         except:
@@ -86,12 +110,12 @@ for file_path in json_files:
 
 print(f"=== AKTUALISIERTES ERGEBNIS ===")
 print(f"Gescannte Ladeparks/Infrastrukturen über alle Dateien: {total_sites_all_files}")
-print(f"Tatsächliche Treffer im Stadtgebiet Göttingen: {len(sites_zielstadt)}")
+print(f"Treffer im Stadtgebiet der Zielstadt: {len(sites_zielstadt)}")
 print(f"===============================\n")
 
 if sites_zielstadt:
-    print("Gefundene Göttingen-Infrastrukturen (Auszug):")
+    print("Gefundene Infrastrukturen der Zielstadt (Auszug):")
     for i, match in enumerate(sites_zielstadt[:30], 1):
         print(f"{i}. [{match['file']}] {match['name']} ({match['zip']} {match['city']})")
 else:
-    print("Auch mit tieferer Analyse keine direkten Göttingen-Infrastrukturen extrahierbar.")
+    print("Auch mit tieferer Analyse keine Infrastrukturen der Zielstadt extrahierbar.")
