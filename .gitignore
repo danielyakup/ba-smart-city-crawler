@@ -6,7 +6,10 @@ prompt.txt
 
 # Zertifikate und Geheimnisse ignorieren
 *.p12
+*.p12.*
+certificate.p12*
 .env
+.env.*
 
 # Heruntergeladene Projektdaten ignorieren
 data/
@@ -22,3 +25,6 @@ cron_*.log
 
 # Streamlit-Log
 streamlit.log
+
+# Lokale Werkzeug-Konfiguration
+.claude/

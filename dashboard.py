@@ -12,7 +12,7 @@ vorab berechnet hat.
 Aufruf:  venv/bin/streamlit run dashboard.py
 
 ANONYM=True blendet den Ortsbezug aus der Anzeige aus (Titel, Straßennamen,
-Betreiberkürzel in den EVSE-IDs) — gedacht für Screenshots in der schriftlichen
+Betreibernamen, Betreiberkürzel in den EVSE-IDs) — gedacht für Screenshots in der schriftlichen
 Ausarbeitung, die die untersuchte Stadt durchgängig umschreibt. Die exportierten
 CSVs bleiben davon unberührt, sie enthalten weiterhin die echten Werte.
 """
@@ -111,6 +111,25 @@ def standort_label(strasse):
     return STANDORT_ALIAS.get(strasse, strasse)
 
 
+# Betreibernamen verraten den Ort ebenso wie die Straße (z. B. die örtlichen
+# Stadtwerke), deshalb bekommen sie dieselbe Alias-Behandlung.
+BETREIBER_ALIAS = (
+    {
+        betreiber: f"Betreiber {nummer:02d}"
+        for nummer, betreiber in enumerate(
+            sorted(stammdaten["betreiber"].dropna().unique()), start=1
+        )
+    }
+    if ANONYM
+    else {}
+)
+
+
+def betreiber_label(betreiber):
+    """Anzeigename eines Betreibers; bei ANONYM ein neutraler Platzhalter."""
+    return BETREIBER_ALIAS.get(betreiber, betreiber)
+
+
 def maskiere_id(evse_id):
     """Ersetzt das Betreiberkürzel in der EVSE-ID durch XXX.
 
@@ -138,6 +157,8 @@ def fuer_anzeige(df):
         df["strasse"] = df["strasse"].map(standort_label)
     if "evse_id" in df.columns:
         df["evse_id"] = df["evse_id"].map(maskiere_id)
+    if "betreiber" in df.columns:
+        df["betreiber"] = df["betreiber"].map(betreiber_label)
     return df
 
 
