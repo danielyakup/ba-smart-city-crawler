@@ -464,3 +464,52 @@ und E5 bleibt unverändert, sie ist ebenenneutral und damit korrekt.
 Fehler war rein terminologisch, hatte aber einen inhaltlichen Befund erzeugt, der so nicht existiert
 — ein Beleg dafür, dass auch abgeleitete Interpretationen bei jeder Änderung der Bezugsgröße neu zu
 prüfen sind.
+
+---
+
+## E20 (30.07.2026): CSV-Exporte auf deutsches Dezimalkomma umgestellt, Excel las Kennzahlen als Datumswerte
+
+**Beobachtung:** Beim Öffnen von `kennzahlen_ladepunkte.csv` in der Tabellenkalkulation standen in den
+Zahlenspalten quer über die Datei Datumswerte anstelle von Zahlen, etwa „17.05.2026" oder auch
+offensichtlich unplausible wie „01.05.1962". Betroffen war jede Spalte mit Dezimalzahlen
+(`belegt_stunden`, `mittlere_dauer_min`, `occupancy_rate_prozent`, `breitengrad` und weitere).
+
+**Ursache:** Es handelt sich um ein Formatproblem beim Öffnen und nicht um einen Rechenfehler. Die CSVs
+waren halb deutsch und halb englisch formatiert: Als Spaltentrenner diente bereits das Semikolon
+(deutsche Konvention, weil Excel im deutschen Sprachraum diese erwartet), als Dezimaltrennzeichen
+weiterhin der Punkt (Standard von pandas und des `csv`-Moduls). Eine Tabellenkalkulation mit deutscher
+Spracheinstellung deutet in dieser Kombination den Punkt als Datumstrennzeichen: Aus dem Wert `17.5`
+wird der 17. Mai des laufenden Jahres, aus `1.5` der 1. Mai. Werte, die sich nicht als Tag.Monat
+deuten lassen, werden intern als Datums-Seriennummer interpretiert und landen in weit entfernten
+Jahren, was die Einträge in den 1960er-Jahren erklärt. Die Rohdateien selbst enthielten an keiner
+Stelle einen Datumswert (per Regex-Suche über alle fünf CSVs geprüft: 0 Treffer).
+
+**Entscheidung:** Alle fünf Exportdateien werden durchgängig deutsch formatiert, also mit Semikolon als
+Feldtrenner **und** Komma als Dezimaltrennzeichen, weiterhin UTF-8 mit BOM. Damit sind sie ohne
+Import-Assistenten per Doppelklick korrekt lesbar. Das folgt der Interview-Anforderung „Export als
+wichtigstes Designmerkmal" (23.06.2026, Block D): Die Adressatinnen und Adressaten in der
+Stadtverwaltung arbeiten mit Excel und nicht mit pandas.
+
+**Umsetzung:**
+- `berechne_kennzahlen.py`: `to_csv(..., decimal=",")` für alle drei Ausgaben, `read_csv(..., decimal=",")`
+  für die beiden Eingaben.
+- `extract_stammdaten.py`: schreibt über das `csv`-Modul, das kein `decimal`-Argument kennt. Die neue
+  Hilfsfunktion `de_zahl()` stellt die Werte der Spalten `breitengrad`, `laengengrad` und
+  `max_leistung_kw` um, während Nicht-Zahlen unverändert bleiben.
+- `dashboard.py`: `decimal=","` in allen fünf `read_csv`-Aufrufen sowie im Download-Export `csv_bytes()`.
+- `extract_zeitreihe.py` bleibt unverändert, weil `statusaenderungen_targetcity.csv` keine Dezimalspalte
+  enthält (Prüfung: 0 umzustellende Werte) und die aus den Stammdaten gelesenen Felder ausschließlich
+  IDs sind.
+
+**Datenstand:** Die vorhandenen CSVs wurden ausschließlich umformatiert und nicht neu berechnet, sodass
+der eingefrorene Datenstand des Rerun-Fensters erhalten bleibt. Als Kontrolle erzeugte ein
+anschließender Neulauf von `berechne_kennzahlen.py` auf denselben Eingaben byte-identische Dateien, und
+ein feldweiser Vergleich gegen die Vorversion zeigte ausschließlich die beabsichtigten
+Punkt-zu-Komma-Änderungen (10.861 Zellen, alle übrigen Felder identisch).
+
+**Methodische Einordnung:** Wie E16 liegt der Befund an der Schnittstelle zur Nutzungsseite und betrifft
+keine Analysefehler. Die Zahlen waren korrekt berechnet, im Zielwerkzeug der Stadtverwaltung aber nicht
+korrekt lesbar. Für ein Artefakt, dessen Nutzen laut Interview am Export hängt, ist das ein Mangel an
+der Übergabestelle und kein kosmetisches Detail. Sichtbar wurde er erst durch das Öffnen in derselben
+Umgebung, die auch die Adressaten verwenden, was die ADR-Logik der iterativen Evaluation im
+Anwendungskontext stützt (Sein et al. 2011).

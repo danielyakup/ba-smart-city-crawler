@@ -23,8 +23,30 @@ import csv
 
 AUSGABE_DATEI = os.path.join("auswertung", "stammdaten_targetcity.csv")
 
+# Spalten mit Dezimalzahlen, die für die CSV auf Komma umgestellt werden
+# (siehe ENTSCHEIDUNGSLOG E20 und de_zahl()).
+DEZIMAL_SPALTEN = ("breitengrad", "laengengrad", "max_leistung_kw")
+
 
 # --- Hilfsfunktionen (übernommen aus compare_bnetza.py, dort erprobt) --------
+
+
+def de_zahl(wert):
+    """Schreibt eine Dezimalzahl mit Komma statt Punkt.
+
+    Die CSVs sind mit Semikolon getrennt, weil Excel/LibreOffice in deutscher
+    Spracheinstellung das erwarten. Dann muss aber auch das Dezimaltrennzeichen
+    deutsch sein: '17.5' wird sonst beim Öffnen als Datum '17.05.2026' gelesen
+    (ENTSCHEIDUNGSLOG E20). Nicht-Zahlen bleiben unverändert."""
+    if wert is None or wert == "":
+        return wert
+    text = str(wert)
+    try:
+        float(text)
+    except ValueError:
+        return wert
+    return text.replace(".", ",")
+
 
 def normalize_id(value):
     """Macht IDs vergleichbar, indem alle Trennzeichen entfernt werden:
@@ -250,7 +272,10 @@ if __name__ == "__main__":
         writer = csv.DictWriter(f, fieldnames=spalten, delimiter=";")
         writer.writeheader()
         for row in sorted(ladepunkte.values(), key=lambda r: (r["anbieter"], r["evse_id"])):
-            writer.writerow(row)
+            writer.writerow({
+                spalte: de_zahl(wert) if spalte in DEZIMAL_SPALTEN else wert
+                for spalte, wert in row.items()
+            })
 
     print(f"\nFertig: {len(ladepunkte)} eindeutige Göttinger Ladepunkte")
     print(f"Gespeichert unter: {AUSGABE_DATEI}")

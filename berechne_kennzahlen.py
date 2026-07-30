@@ -114,7 +114,7 @@ def lade_zeitreihe():
     utc=True normalisiert alles auf UTC)."""
     df = pd.read_csv(
         os.path.join(ORDNER, "statusaenderungen_targetcity.csv"),
-        sep=";", encoding="utf-8-sig",
+        sep=";", encoding="utf-8-sig", decimal=",",
     )
     df["zeit"] = pd.to_datetime(df["geaendert_am"], utc=True, format="mixed", errors="coerce")
     # Ohne auswertbaren Zeitstempel ist keine Dauer-Berechnung möglich
@@ -341,7 +341,7 @@ if __name__ == "__main__":
     zeitreihe = lade_zeitreihe()
     stammdaten = pd.read_csv(
         os.path.join(ORDNER, "stammdaten_targetcity.csv"),
-        sep=";", encoding="utf-8-sig",
+        sep=";", encoding="utf-8-sig", decimal=",",
     )
 
     # Stromart je Ladepunkt für die getrennte Plausibilitätsgrenze (E15)
@@ -371,17 +371,19 @@ if __name__ == "__main__":
             print(f"  Davon mit mindestens einem Ladevorgang-Intervall: "
                   f"{', '.join(waisen_mit_event)}")
 
-    # Event-Ebene speichern (Export-Ebene 2 aus dem Interview: Nutzung)
+    # Event-Ebene speichern (Export-Ebene 2 aus dem Interview: Nutzung).
+    # decimal=",": Semikolon UND Dezimalkomma, sonst deutet Excel in deutscher
+    # Spracheinstellung Zahlen wie "17.5" als Datum "17.05.2026" (E20).
     events_pfad = os.path.join(ORDNER, "ladevorgaenge_targetcity.csv")
-    events.to_csv(events_pfad, sep=";", index=False, encoding="utf-8-sig")
+    events.to_csv(events_pfad, sep=";", index=False, encoding="utf-8-sig", decimal=",")
 
     # Event-Ebene Ausfälle (ENTSCHEIDUNGSLOG E10: Störung getrennt von Nutzung)
     ausfaelle_pfad = os.path.join(ORDNER, "ausfaelle_targetcity.csv")
-    ausfaelle.to_csv(ausfaelle_pfad, sep=";", index=False, encoding="utf-8-sig")
+    ausfaelle.to_csv(ausfaelle_pfad, sep=";", index=False, encoding="utf-8-sig", decimal=",")
 
     # Aggregat-Ebene speichern (Export-Ebene 3)
     kennzahlen_pfad = os.path.join(ORDNER, "kennzahlen_ladepunkte.csv")
-    kennzahlen.to_csv(kennzahlen_pfad, sep=";", index=False, encoding="utf-8-sig")
+    kennzahlen.to_csv(kennzahlen_pfad, sep=";", index=False, encoding="utf-8-sig", decimal=",")
 
     plausible = events[events["plausibel"]] if not events.empty else events
     print(f"Beobachtungsfenster (gesamt): {start:%d.%m.%Y %H:%M} – {ende:%d.%m.%Y %H:%M} (UTC)")

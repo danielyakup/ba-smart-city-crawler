@@ -43,19 +43,19 @@ st.set_page_config(
 def lade_daten():
     """Liest die Export-Ebenen der Pipeline ein."""
     stammdaten = pd.read_csv(
-        os.path.join(ORDNER, "stammdaten_targetcity.csv"), sep=";", encoding="utf-8-sig"
+        os.path.join(ORDNER, "stammdaten_targetcity.csv"), sep=";", encoding="utf-8-sig", decimal=","
     )
     events = pd.read_csv(
-        os.path.join(ORDNER, "ladevorgaenge_targetcity.csv"), sep=";", encoding="utf-8-sig"
+        os.path.join(ORDNER, "ladevorgaenge_targetcity.csv"), sep=";", encoding="utf-8-sig", decimal=","
     )
     ausfaelle = pd.read_csv(
-        os.path.join(ORDNER, "ausfaelle_targetcity.csv"), sep=";", encoding="utf-8-sig"
+        os.path.join(ORDNER, "ausfaelle_targetcity.csv"), sep=";", encoding="utf-8-sig", decimal=","
     )
     kennzahlen = pd.read_csv(
-        os.path.join(ORDNER, "kennzahlen_ladepunkte.csv"), sep=";", encoding="utf-8-sig"
+        os.path.join(ORDNER, "kennzahlen_ladepunkte.csv"), sep=";", encoding="utf-8-sig", decimal=","
     )
     zeitreihe = pd.read_csv(
-        os.path.join(ORDNER, "statusaenderungen_targetcity.csv"), sep=";", encoding="utf-8-sig"
+        os.path.join(ORDNER, "statusaenderungen_targetcity.csv"), sep=";", encoding="utf-8-sig", decimal=","
     )
     # Zeitstempel für Anzeige und Diagramme in lokale Zeit umrechnen
     # (format="mixed": die CSV enthält Zeitstempel mit und ohne Millisekunden)
@@ -69,8 +69,10 @@ def lade_daten():
 
 
 def csv_bytes(df):
-    """DataFrame als Excel-taugliche CSV (Semikolon, BOM) für den Download."""
-    return df.to_csv(sep=";", index=False).encode("utf-8-sig")
+    """DataFrame als Excel-taugliche CSV (Semikolon, Dezimalkomma, BOM) für den
+    Download. Ohne Dezimalkomma liest Excel in deutscher Spracheinstellung
+    Zahlen wie "17.5" als Datum "17.05.2026" (ENTSCHEIDUNGSLOG E20)."""
+    return df.to_csv(sep=";", index=False, decimal=",").encode("utf-8-sig")
 
 
 def excel_bytes(stammdaten, events, ausfaelle, kennzahlen):
