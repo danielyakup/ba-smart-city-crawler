@@ -25,11 +25,36 @@ Ausgabe:       auswertung/statusaenderungen_targetcity.csv
 import os
 import re
 import csv
+import sys
 import glob
 import json
 
 STAMMDATEN_DATEI = os.path.join("auswertung", "stammdaten_targetcity.csv")
 AUSGABE_DATEI = os.path.join("auswertung", "statusaenderungen_targetcity.csv")
+
+# Inkrementeller Betrieb (ENTSCHEIDUNGSLOG E21). Bis zur Abgabe hat dieses
+# Skript bei jedem Lauf ALLE losen Snapshots in data/ neu geparst. Seit die
+# dyn-Snapshots naechtlich archiviert werden, liegt dort nur noch der laufende
+# Tag; ein Vollaufbau wuerde die Historie der bereits archivierten Tage
+# verlieren. Deshalb werden die bisherigen Ergebnisse fortgeschrieben:
+#
+#   ROH_DATEI    Alle je beobachteten Statusaenderungen, UNbereinigt. Notwendig,
+#                weil entferne_wiederholte_status() Zeilen verwirft, bevor die
+#                Ausgabe-CSV geschrieben wird. Wuerde nur die bereinigte CSV
+#                fortgeschrieben, koennte ein spaeter eintreffender lastUpdated
+#                mitten in einen bereits kollabierten Statuslauf fallen und ein
+#                anderes Ergebnis liefern als ein Vollaufbau. Die Bereinigung
+#                laeuft daher immer ueber den vollstaendigen Rohbestand.
+#   MARKEN_DATEI Pro Feed der Dateiname des zuletzt verarbeiteten Snapshots.
+#                Die Dateinamen tragen den Abrufzeitpunkt, sortieren innerhalb
+#                eines Feeds also chronologisch -- alles danach ist neu.
+#
+# Beide Dateien sind Arbeitsdateien, keine Lieferergebnisse, daher mit Punkt
+# vorangestellt. Ein Vollaufbau bleibt jederzeit ueber --vollaufbau moeglich.
+ROH_DATEI = os.path.join("auswertung", ".zeitreihe_roh.csv")
+MARKEN_DATEI = os.path.join("auswertung", ".zeitreihe_marken.json")
+
+SPALTEN = ["evse_id", "anbieter", "status", "geaendert_am", "erfasst_am", "match_ebene"]
 
 
 def normalize_id(value):
@@ -107,6 +132,59 @@ def entferne_wiederholte_status(zeilen):
     return bereinigt
 
 
+def feed_name(filename):
+    """Feed-Kennung aus dem Dateinamen, also alles vor dem Datumsteil
+    ('EnBW_dyn_20260806_000015_978684.json' -> 'EnBW_dyn'). Dient als Schluessel
+    fuer die Fortschrittsmarken; der Anbietername allein wuerde nicht genuegen,
+    weil pro Anbieter zwei Feeds existieren."""
+    m = re.match(r"(.+?)_(\d{8})_\d{6}", filename)
+    return m.group(1) if m else filename
+
+
+def zeilen_zu_updates(zeilen):
+    """Baut aus CSV-Zeilen den Dedup-Schluessel wieder auf, den der Parser
+    verwendet: (normalisierte Ladepunkt-ID, Aenderungszeitpunkt, Status).
+    Der Schluessel ist verlustfrei rekonstruierbar, weil 'evse_id' entweder aus
+    den Stammdaten stammt oder die rohe Punkt-ID ist -- normalize_id() liefert
+    in beiden Faellen wieder dieselbe normalisierte ID."""
+    updates = {}
+    for row in zeilen:
+        key = (normalize_id(row["evse_id"]), row["geaendert_am"], row["status"])
+        updates[key] = {spalte: row.get(spalte, "") for spalte in SPALTEN}
+    return updates
+
+
+def lade_csv(pfad):
+    """Liest eine der Arbeits-/Ausgabe-CSVs; fehlende Datei ergibt eine leere
+    Liste, damit der erste Lauf ohne Sonderfall durchlaeuft."""
+    if not os.path.exists(pfad):
+        return []
+    with open(pfad, encoding="utf-8-sig") as f:
+        return list(csv.DictReader(f, delimiter=";"))
+
+
+def schreibe_csv(pfad, zeilen):
+    with open(pfad, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=SPALTEN, delimiter=";")
+        writer.writeheader()
+        writer.writerows(zeilen)
+
+
+def lade_marken():
+    if not os.path.exists(MARKEN_DATEI):
+        return {}
+    try:
+        with open(MARKEN_DATEI, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        # Kaputte Marken-Datei darf nicht zu stillem Datenverlust fuehren:
+        # ohne Marken werden alle vorhandenen Snapshots erneut geparst, was
+        # dank Deduplizierung ueber den Rohbestand folgenlos ist.
+        print(f"Warnung: '{MARKEN_DATEI}' unlesbar ({e}) -- alle vorhandenen "
+              f"Snapshots werden erneut geparst.")
+        return {}
+
+
 def snapshot_zeitpunkt(filename):
     """Liest den Abrufzeitpunkt aus dem Dateinamen und formatiert ihn ISO-artig
     — die Dateinamen SIND die Historisierung. Seit E12 heißen neue Dateien
@@ -153,24 +231,69 @@ if __name__ == "__main__":
         if "dyn" in os.path.basename(f).lower()
         and not os.path.basename(f).lower().startswith("smartlab")
     )
-    print(f"Scanne {len(json_files)} dynamische Snapshots...")
+
+    # Vorhandenes Ergebnis fortschreiben oder alles neu aufbauen (E21) --------
+    vollaufbau = "--vollaufbau" in sys.argv
+    marken = {} if vollaufbau else lade_marken()
 
     updates = {}       # Dedup-Schlüssel -> Zeile; ein Delta kann in mehreren
                        # aufeinanderfolgenden Abrufen stecken, wenn der Anbieter
                        # zwischen zwei Abrufen nichts Neues publiziert hat
+    if not vollaufbau:
+        roh_zeilen = lade_csv(ROH_DATEI)
+        if roh_zeilen:
+            updates = zeilen_zu_updates(roh_zeilen)
+            print(f"Rohbestand geladen: {len(updates)} bereits beobachtete "
+                  f"Statusänderungen.")
+        else:
+            # Erster inkrementeller Lauf: Der Rohbestand wird aus der
+            # vorhandenen Ausgabe-CSV angelegt. Die dort durch E16 bereits
+            # entfernten Wiederholungen fehlen darin, was folgenlos ist, weil
+            # sie auch der Vollaufbau nicht ausgeben würde. Ab jetzt wächst der
+            # Rohbestand unbereinigt weiter.
+            updates = zeilen_zu_updates(lade_csv(AUSGABE_DATEI))
+            if updates:
+                print(f"Rohbestand erstmalig aus '{AUSGABE_DATEI}' übernommen: "
+                      f"{len(updates)} Statusänderungen.")
+
+        vorher = len(json_files)
+        json_files = [
+            f for f in json_files
+            if os.path.basename(f) > marken.get(feed_name(os.path.basename(f)), "")
+        ]
+        print(f"Scanne {len(json_files)} neue von {vorher} vorhandenen "
+              f"dynamischen Snapshots...")
+    else:
+        print(f"Vollaufbau: scanne {len(json_files)} dynamische Snapshots...")
+
     match_ebenen = {"punkt": 0, "station": 0, "site": 0}
     fehler = 0
 
+    # Fortschrittsmarken werden nur bis zum ERSTEN Lesefehler eines Feeds
+    # gesetzt (E21): Der Crawler schreibt alle fuenf Minuten, die Auswertung
+    # liest alle fuenfzehn -- ein Lauf kann also eine gerade erst halb
+    # geschriebene Datei erwischen. Wuerde die Marke darueber hinwegspringen,
+    # fehlte dieses Paket dauerhaft in der Zeitreihe. Stattdessen bleibt der
+    # Rest des Feeds fuer den naechsten Lauf liegen, wenn die Datei vollstaendig
+    # ist.
+    letzte_gute = {}
+    gestoppt = set()
+
     for file_path in json_files:
         filename = os.path.basename(file_path)
+        feed = feed_name(filename)
+        if feed in gestoppt:
+            continue
         anbieter = filename.split("_")[0]
         erfasst_am = snapshot_zeitpunkt(filename)
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
         except Exception as e:
-            print(f"Fehler beim Lesen von {filename}: {e}")
+            print(f"Fehler beim Lesen von {filename}: {e} "
+                  f"-- {feed} wird beim naechsten Lauf ab hier fortgesetzt.")
             fehler += 1
+            gestoppt.add(feed)
             continue
 
         for punkt_id, station_id, site_id, status, last_updated in iter_status_updates(data):
@@ -209,19 +332,42 @@ if __name__ == "__main__":
                     "match_ebene": ebene,
                 }
 
+        if feed not in gestoppt:
+            letzte_gute[feed] = filename
+
     # 3. CSV schreiben ------------------------------------------------------------
-    spalten = ["evse_id", "anbieter", "status", "geaendert_am", "erfasst_am", "match_ebene"]
     zeilen = sorted(updates.values(), key=lambda r: (r["evse_id"], r["geaendert_am"]))
     vor_bereinigung = len(zeilen)
     zeilen = entferne_wiederholte_status(zeilen)
-    with open(AUSGABE_DATEI, "w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=spalten, delimiter=";")
-        writer.writeheader()
-        writer.writerows(zeilen)
+
+    # Schutz wie in extract_stammdaten.py (E21): Ein leeres Ergebnis ueber eine
+    # gefuellte CSV zu schreiben ist immer ein Fehler. Trat vor E21 genau dann
+    # ein, wenn in data/ keine losen Snapshots lagen -- nach der naechtlichen
+    # Archivierung der Normalfall.
+    if not zeilen:
+        vorhandene = lade_csv(AUSGABE_DATEI)
+        if vorhandene:
+            print(f"\nABBRUCH: 0 Statusänderungen ermittelt, aber "
+                  f"'{AUSGABE_DATEI}' enthält {len(vorhandene)} Zeilen.")
+            print("Die vorhandene CSV bleibt unverändert. Ursache prüfen.")
+            exit(1)
+
+    schreibe_csv(AUSGABE_DATEI, zeilen)
+
+    # Rohbestand und Marken erst NACH der erfolgreichen Ausgabe fortschreiben,
+    # damit ein Abbruch oben keinen Fortschritt festschreibt, der in der
+    # Ausgabe-CSV nicht angekommen ist.
+    if not vollaufbau:
+        schreibe_csv(ROH_DATEI, sorted(
+            updates.values(), key=lambda r: (r["evse_id"], r["geaendert_am"])))
+        marken.update(letzte_gute)
+        with open(MARKEN_DATEI, "w", encoding="utf-8") as f:
+            json.dump(marken, f, indent=2, ensure_ascii=False)
 
     print(f"\nFertig: {len(zeilen)} eindeutige Statusänderungen "
           f"({vor_bereinigung - len(zeilen)} Wiederholungen ohne echten "
-          f"Statuswechsel entfernt, siehe E16; Match-Ebenen: {match_ebenen}, "
+          f"Statuswechsel entfernt, siehe E16; Match-Ebenen "
+          f"{'(nur neue)' if not vollaufbau else ''}: {match_ebenen}, "
           f"Lesefehler: {fehler})")
     print(f"Betroffene Ladepunkte: {len({r['evse_id'] for r in zeilen})} von {len(punkt_keys)}")
     print(f"Gespeichert unter: {AUSGABE_DATEI}")

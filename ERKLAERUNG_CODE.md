@@ -76,11 +76,17 @@ from requests_pkcs12 import Pkcs12Adapter
 ### Schritt 2: Konfiguration (Zeilen 12–30)
 
 ```python
-CERT_FILE = "certificate.p12"
+BASIS = os.path.dirname(os.path.abspath(__file__))
+DATEN_ORDNER = os.path.join(BASIS, "data")
+CERT_FILE = os.path.join(BASIS, "certificate.p12")
 CERT_PASSWORD = _load_cert_password()
 ```
 
 Die Mobilithek lässt nicht jeden rein: Man muss sich mit einem **Zertifikat** ausweisen (vergleichbar mit einem digitalen Dienstausweis). `_load_cert_password()` liest das Passwort zuerst aus der Umgebungsvariable `MOBILITHEK_CERT_PASSWORD` (gesetzt in Crontab und `~/.bashrc`); falls die nicht gesetzt ist, aus einer lokalen, nicht versionierten `.env`-Datei im Projektordner. Bewusst **kein** Passwort direkt im Code — das würde bei jedem `git push` mit ins Repository wandern.
+
+`BASIS` verankert alle Pfade am Ort der Skriptdatei statt am Arbeitsverzeichnis. Der Unterschied klingt kleinlich, hat aber einen Lauf gekostet: Ein Cron-Job startet im Home-Verzeichnis und nicht im Projektordner. Mit dem früheren `CERT_FILE = "certificate.p12"` suchte Python das Zertifikat deshalb im Home-Verzeichnis, und der monatliche Stammdaten-Lauf am 01.08.2026 brach mit `FileNotFoundError` ab. Dasselbe gilt für `STATUS_DATEI`, `LOCK_DATEI` und den Ordner, in den die JSONs geschrieben werden.
+
+`_lock_belegen()` sorgt dafür, dass nie zwei Abrufe gleichzeitig laufen. Die dyn-Läufe alle fünf Minuten brechen einfach ab, wenn noch ein Lauf aktiv ist, der nächste Tick holt alles nach. Der monatliche Gesamtlauf über `main.py` wartet dagegen bis zu zwei Stunden auf die Sperre (`max_warten_sek`), denn wenn er abbricht, fehlt der Stammdaten-Snapshot eines ganzen Monats. Genau das ist im September 2026 passiert (`ENTSCHEIDUNGSLOG.md` E22).
 
 ```python
 SUBSCRIPTIONS = { "EnBW_dyn": "983100920677924864", ... }
@@ -260,6 +266,17 @@ Das Skript geht alle dynamischen Snapshots durch (mehrere Tausend, Tendenz stark
 **Ergänzung (ENTSCHEIDUNGSLOG E16): Republikations-Duplikate entfernt.** Weil `publicationTime` pro NACHRICHT statt pro PUNKT gilt und hhenergienetz fast den gesamten Bestand bei jeder Nachricht neu mitschickt, erzeugte jede Republikation eines unveränderten Status eine scheinbar neue Zeile — 4.506 von 7.304 Zeilen waren betroffen. Die Segmentierung in `berechne_kennzahlen.py` ignoriert direkte Wiederholungen zwar ohnehin, aber der Export selbst zeigte damit viel mehr "Statusänderungen", als tatsächlich passiert waren. Neue Funktion `entferne_wiederholte_status()` entfernt unmittelbar aufeinanderfolgende Zeilen mit demselben Status pro Ladepunkt, bevor die CSV geschrieben wird.
 
 **Das Abrufraster wurde zwischenzeitlich verschärft:** Anfangs liefen die dynamischen Feeds im 30-Minuten-Takt. Nach dem in E7 dokumentierten Befund, dass Delta-Feeds bei diesem Raster reihenweise Statusänderungen verpassen (Tesla z. B. 0 von 8 Göttinger Ladepunkten je erfasst), wurde die Crontab am 11.07.2026 auf ein 5-Minuten-Raster umgestellt. Der Effekt ist messbar: Statusänderungen stiegen von 456 auf inzwischen 576, betroffene Ladepunkte von 122 auf 161 von 317 (siehe `ENTSCHEIDUNGSLOG.md` E7/E8). Das Beobachtungsfenster zerfällt dadurch in zwei Phasen unterschiedlicher Dichte — bei Auswertungen über den Gesamtzeitraum ist das auszuweisen.
+
+**Nach der Abgabe geändert (ENTSCHEIDUNGSLOG E21): Das Skript baut nicht mehr alles neu.** Bis dahin las es bei jedem Lauf sämtliche losen Dateien in `data/` und schrieb die CSV komplett neu. Das funktionierte nur, solange die gesamte Historie dort lag. Seit dem 06.08.2026 packt ein nächtlicher Cron-Job die Snapshots abgeschlossener Tage in Archive und löscht die Originale, sodass in `data/` nur der laufende Tag liegt. Ein Vollaufbau hätte die CSV also auf einen Tag zusammenschrumpfen lassen.
+
+Stell es dir wie ein Kassenbuch vor: Früher wurde bei jedem Kassenschluss die komplette Jahresbilanz aus allen Belegen neu addiert. Jetzt wird der bisherige Stand übernommen und nur noch die neuen Belege dazugerechnet. Dafür merkt sich das Skript zwei Dinge:
+
+- `auswertung/.zeitreihe_roh.csv` — alle je beobachteten Statusänderungen, **unbereinigt**. Diese Datei ist nötig, weil `entferne_wiederholte_status()` Zeilen wegwirft, bevor die eigentliche CSV geschrieben wird. Würde nur das bereinigte Ergebnis fortgeschrieben, könnte eine spät gemeldete Änderung in eine schon zusammengefasste Serie fallen und ein anderes Ergebnis liefern als ein Neuaufbau. Die Bereinigung passiert deshalb immer über den vollen Rohbestand.
+- `auswertung/.zeitreihe_marken.json` — pro Feed der Dateiname des zuletzt verarbeiteten Snapshots. Weil die Dateinamen den Abrufzeitpunkt tragen, ist alles mit größerem Namen neu.
+
+Zwei Sicherungen gehören dazu. Erstens rückt eine Marke nur bis zum ersten Lesefehler eines Feeds vor: Der Crawler schreibt alle fünf Minuten, die Auswertung liest alle fünfzehn, ein Lauf kann also eine gerade halb geschriebene Datei erwischen. Ohne diese Regel würde die Marke darüber hinwegspringen und das Paket wäre für immer verloren. Zweitens überschreibt kein Skript mehr eine gefüllte CSV mit einem leeren Ergebnis, denn genau das wäre nach der Archivierung sonst der Normalfall geworden.
+
+Wer doch einmal alles neu bauen will, ruft `venv/bin/python extract_zeitreihe.py --vollaufbau` auf. Das ist nur sinnvoll, wenn der komplette Zeitraum vorher aus den Archiven ausgepackt wurde, und darf nie in die Crontab.
 
 Ergebnis: `statusaenderungen_targetcity.csv` — eine Zeile pro beobachteter Statusänderung.
 

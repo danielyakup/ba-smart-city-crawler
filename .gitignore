@@ -28,3 +28,10 @@ streamlit.log
 
 # Lokale Werkzeug-Konfiguration
 .claude/
+
+# Betrieb nach der Abgabe: bewusst nicht Teil des eingereichten Stands
+BETRIEB_NACH_ABGABE.md
+auswertung_backup_*/
+
+# Laufende Messung der Feed-Rueckstaende (Betriebsdaten, wird mit data/ uebergeben)
+rueckstand.log

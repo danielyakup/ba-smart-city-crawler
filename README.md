@@ -70,19 +70,35 @@ Lock-Datei gegen überlappende Läufe.
 
 ### Automatisierter Betrieb
 
-Im Produktivbetrieb der Arbeit liefen drei Cron-Jobs:
+Im Produktivbetrieb der Arbeit liefen drei Cron-Jobs, ergänzt um die nächtliche Archivierung:
 
 ```cron
 MOBILITHEK_CERT_PASSWORD=...
 */5  * * * *  /pfad/zum/projekt/crawl_dyn.sh                >> cron_dyn.log 2>&1
 0 2  1 * *    venv/bin/python /pfad/zum/projekt/main.py      >> cron_stat.log 2>&1
 */15 * * * *  /pfad/zum/projekt/auswertung_aktualisieren.sh  >> cron_auswertung.log 2>&1
+15 3 * * *    /pfad/zum/projekt/archiviere_naechtlich.sh     >> cron_archiv.log 2>&1
 ```
 
 Die dynamischen Feeds werden alle fünf Minuten abgerufen, die statischen monatlich. Der enge Takt
 ist eine Reaktion auf einen empirischen Befund: Bei zu grobem Raster gehen zwischen zwei Abrufen
 Statuswechsel verloren. Der Abruf bedient zusätzlich den `If-Modified-Since`-Mechanismus der
 Mobilithek, um zwischengespeicherte Pakete vollständig nachzuholen.
+
+### Archivierung der Rohdaten
+
+Im Fünf-Minuten-Takt fallen etwa 3,8 GB Rohdaten pro Tag an, gepackt nur rund 0,1 GB, weil 92 bis
+97 Prozent der Bytes auf den DATEX-Umschlag entfallen. Ohne Archivierung ist eine 79-GB-Platte
+nach etwa 17 Tagen voll; genau das führte am 03. und 04.08.2026 zu einer Datenlücke.
+`archiviere_naechtlich.sh` packt die dynamischen Snapshots deshalb pro Feed und Tag zu
+`data/archiv/{feed}_{JJJJMMTT}.tar.zst` (zstd -3, Kompressionsfaktor 33 bis 51).
+
+Zwei Eigenschaften sichern die Historisierung ab: Originaldateien werden erst gelöscht, nachdem
+ihr Vorhandensein im Archiv verifiziert ist, und ein bestehendes Archiv wird nie überschrieben.
+Fehlen in einem Archiv Dateien, die auf der Platte liegen, wandern genau diese in ein zusätzliches
+`_nachtragN.tar.zst`. Der laufende Tag bleibt unangetastet, damit sich Archivierung und Crawler
+nicht in die Quere kommen. Ein defektes Archiv wird nicht gelöscht, sondern mit der Endung
+`.defekt.{Zeitstempel}` beiseitegelegt und im Log gemeldet; der Lauf endet dann mit Exit-Code 1.
 
 ## Übertragung auf eine andere Kommune
 

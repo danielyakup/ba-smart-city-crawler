@@ -262,6 +262,33 @@ if __name__ == "__main__":
 
     # --- CSV schreiben ---------------------------------------------------------
     os.makedirs("auswertung", exist_ok=True)
+
+    # Schutz gegen das Ueberschreiben einer gefuellten CSV mit einem leeren
+    # Ergebnis (ENTSCHEIDUNGSLOG E21): Seit die dyn-Snapshots naechtlich
+    # archiviert werden, liegen in data/ nur noch der laufende Tag und die
+    # stat-Feeds des letzten Monatslaufs. Findet dieser Lauf keine stat-Datei
+    # (oder scheitert das Parsen), entstuende hier eine CSV mit reiner
+    # Kopfzeile -- und weil extract_zeitreihe.py die Stammdaten als
+    # Join-Schluessel braucht, waere anschliessend die gesamte Auswertung leer.
+    # Ein leeres Ergebnis ist deshalb immer ein Fehler, nie ein gueltiger Stand.
+    if not ladepunkte and os.path.exists(AUSGABE_DATEI):
+        with open(AUSGABE_DATEI, encoding="utf-8-sig") as f:
+            vorhandene_zeilen = sum(1 for _ in f) - 1  # Kopfzeile abziehen
+        if vorhandene_zeilen > 0:
+            if not json_files:
+                # Erwartbarer Normalfall zwischen zwei Monatslaeufen: Die
+                # stat-Feeds werden nur am Monatsersten abgerufen, und die
+                # Stammdaten aendern sich selten. Kein Fehler, nichts zu tun.
+                print(f"\nKeine stat-Snapshots in data/ -- '{AUSGABE_DATEI}' "
+                      f"bleibt mit {vorhandene_zeilen} Zeilen unveraendert.")
+                exit(0)
+            print(f"\nABBRUCH: {len(json_files)} stat-Snapshots gelesen, aber "
+                  f"0 Ladepunkte extrahiert, waehrend '{AUSGABE_DATEI}' "
+                  f"{vorhandene_zeilen} Zeilen enthaelt.")
+            print("Die vorhandene CSV bleibt unveraendert. Ursache pruefen "
+                  "(Parse-Fehler? Adressstruktur eines neuen Anbieters?), "
+                  "dann erneut ausfuehren.")
+            exit(1)
     spalten = [
         "anbieter", "evse_id", "ladepunkt_name", "station_id", "site_id",
         "site_name", "betreiber", "strasse", "plz", "stadt",

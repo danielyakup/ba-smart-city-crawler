@@ -11,18 +11,24 @@ from requests_pkcs12 import Pkcs12Adapter
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # --- KONFIGURATION ---
-CERT_FILE = "certificate.p12"
+# Alle Pfade werden am Skriptverzeichnis verankert statt am Arbeitsverzeichnis:
+# Cron startet ohne "cd" im Home-Verzeichnis, wodurch der monatliche stat-Lauf
+# am 01.08.2026 mit FileNotFoundError auf das Zertifikat gescheitert ist.
+BASIS = os.path.dirname(os.path.abspath(__file__))
+DATEN_ORDNER = os.path.join(BASIS, "data")
+
+CERT_FILE = os.path.join(BASIS, "certificate.p12")
 
 # Merkt sich pro Feed den Last-Modified-Zeitstempel des zuletzt abgeholten
 # Pakets (siehe ENTSCHEIDUNGSLOG E12). Ohne diese Datei würde jeder Lauf
 # wieder bei "weit in der Vergangenheit" anfangen und die komplette
 # Warteschlange erneut abholen.
-STATUS_DATEI = "data/.abruf_status.json"
+STATUS_DATEI = os.path.join(DATEN_ORDNER, ".abruf_status.json")
 # Verhindert, dass zwei main.py-Läufe gleichzeitig laufen: Seit ein Lauf bei
 # grossem Rueckstand (siehe E12) laenger als die 5-Minuten-Cron-Taktung
 # dauern kann, koennten sich sonst zwei Prozesse beim Schreiben von
 # STATUS_DATEI ueberschneiden.
-LOCK_DATEI = "data/.crawler.lock"
+LOCK_DATEI = os.path.join(DATEN_ORDNER, ".crawler.lock")
 # Startwert für einen Feed, der noch nie mit If-Modified-Since abgerufen
 # wurde: liefert laut Doku (Kapitel 4.8) das aelteste im Puffer vorhandene
 # Datenpaket zurueck, nicht wirklich alles seit dem Jahr 2000.
@@ -63,18 +69,27 @@ def _prozess_laeuft(pid):
     return True
 
 
-def _lock_belegen():
+def _lock_belegen(max_warten_sek=0):
     """Bricht den Lauf ab, falls schon ein anderer main.py-Prozess aktiv ist
     (z. B. weil der vorherige Cron-Tick wegen eines grossen Rueckstands noch
     laeuft). Eine Lock-Datei mit einer toten PID gilt als verwaist und wird
-    ueberschrieben."""
-    if os.path.exists(LOCK_DATEI):
+    ueberschrieben.
+
+    Mit max_warten_sek > 0 wartet der Lauf stattdessen, bis die Sperre frei
+    wird. Das braucht der monatliche stat-Lauf: Er startet zur selben Minute
+    wie ein dyn-Lauf, der oft laenger als 15 Minuten dauert, und ist deshalb
+    am 01.09. und 01.10.2026 ohne Snapshot abgebrochen."""
+    frist = time.time() + max_warten_sek
+    while os.path.exists(LOCK_DATEI):
         with open(LOCK_DATEI, encoding="utf-8") as f:
             alte_pid_text = f.read().strip()
-        if alte_pid_text.isdigit() and _prozess_laeuft(int(alte_pid_text)):
+        if not (alte_pid_text.isdigit() and _prozess_laeuft(int(alte_pid_text))):
+            print(f"Verwaiste Lock-Datei (PID {alte_pid_text} existiert nicht mehr) -- wird ersetzt.")
+            break
+        if time.time() >= frist:
             print(f"Ein anderer Lauf (PID {alte_pid_text}) ist noch aktiv -- breche ab.")
             sys.exit(0)
-        print(f"Verwaiste Lock-Datei (PID {alte_pid_text} existiert nicht mehr) -- wird ersetzt.")
+        time.sleep(15)
     os.makedirs(os.path.dirname(LOCK_DATEI), exist_ok=True)
     with open(LOCK_DATEI, "w", encoding="utf-8") as f:
         f.write(str(os.getpid()))
@@ -91,7 +106,7 @@ def _load_cert_password():
     password = os.environ.get("MOBILITHEK_CERT_PASSWORD")
     if password:
         return password
-    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    env_path = os.path.join(BASIS, ".env")
     if os.path.exists(env_path):
         with open(env_path, encoding="utf-8") as f:
             for line in f:
@@ -172,7 +187,7 @@ def fetch_data(name, sub_id, status=None):
             try:
                 data = response.json()
                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
-                filename = f"data/{name}_{timestamp}.json"
+                filename = os.path.join(DATEN_ORDNER, f"{name}_{timestamp}.json")
                 with open(filename, 'w', encoding='utf-8') as f:
                     json.dump(data, f, ensure_ascii=False, indent=4)
             except Exception as e:
@@ -223,7 +238,9 @@ def fetch_data(name, sub_id, status=None):
 
 
 if __name__ == "__main__":
-    _lock_belegen()
+    # Der Gesamtlauf (monatlicher stat-Cron, manuelle Abrufe) wartet bis zu
+    # zwei Stunden auf einen laufenden dyn-Lauf, statt den Snapshot zu verlieren.
+    _lock_belegen(max_warten_sek=2 * 60 * 60)
     try:
         status = _lade_status()
         for name, sub_id in SUBSCRIPTIONS.items():

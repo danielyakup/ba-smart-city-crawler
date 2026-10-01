@@ -28,6 +28,9 @@ venv/bin/python berechne_kennzahlen.py   # Ladevorgänge + Occupancy-Kennzahlen
 
 # Dashboard (zeigt auswertung/*.csv an; pyarrow MUSS 19.x bleiben, s. requirements.txt)
 venv/bin/streamlit run dashboard.py
+
+# Archivierung der dyn-Rohdaten (laeuft naechtlich 03:15 per Cron, Log: cron_archiv.log)
+./archiviere_naechtlich.sh
 ```
 
 Es gibt keine Tests und keinen Linter. Authentifizierung: `certificate.p12` (PKCS12-Klientzertifikat, gitignored) + Passwort aus `MOBILITHEK_CERT_PASSWORD` — Umgebungsvariable (gesetzt in Crontab und `~/.bashrc`) mit Fallback auf eine lokale, gitignored `.env`-Datei im Projektroot; kein Fallback-Wert im Code.
@@ -50,5 +53,6 @@ Alle Feeds nutzen DATEX II v3 / AFIR (`payload → aegiEnergyInfrastructureTable
 
 ## Umgang mit den Datendateien
 
+- **Die dyn-Snapshots liegen archiviert, nicht mehr einzeln in `data/`:** `archiviere_naechtlich.sh` packt abgeschlossene Tage nach `data/archiv/{feed}_{JJJJMMTT}.tar.zst` und löscht die Originale erst nach verifiziertem Archivinhalt. Nur der laufende Tag liegt entpackt. Die Extraktionsskripte lesen lose JSONs — für einen Neuaufbau über einen längeren Zeitraum die betroffenen Tage vorher auspacken (`zstd -dc archiv/X.tar.zst | tar -xf - -C data/`), danach läuft die nächste Archivierung sie wieder ein. **Bestehende Archive nie überschreiben**; Nachträge heißen `_nachtragN.tar.zst`.
 - Die statischen JSONs sind bis zu **508 MB** groß (hhenergienetz; Eco-Movement ~467 MB). Niemals per `cat`/Read komplett ausgeben; zum Inspizieren `head -c`, gezielte Python-Snippets oder `json.load` eine Datei nach der anderen mit anschließendem `del`/`gc.collect()` (VM hat ~8 GB RAM).
 - Die alten Smartlab-Dateien in `data/` sind **Belege für die Thesis** (Betreiber fehlt im amtlichen Meldekanal trotz 845 bundesweiten Standorten im Feed, davon 0 in Göttingen) — nicht löschen, obwohl die Smartlab-Abos aus `main.py` entfernt wurden.

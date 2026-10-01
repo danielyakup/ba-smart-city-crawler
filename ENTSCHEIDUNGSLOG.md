@@ -513,3 +513,83 @@ korrekt lesbar. Für ein Artefakt, dessen Nutzen laut Interview am Export hängt
 der Übergabestelle und kein kosmetisches Detail. Sichtbar wurde er erst durch das Öffnen in derselben
 Umgebung, die auch die Adressaten verwenden, was die ADR-Logik der iterativen Evaluation im
 Anwendungskontext stützt (Sein et al. 2011).
+
+---
+
+## E21 (06.08.2026, NACH der Abgabe): Auswertung inkrementell, weil die Archivierung den Vollaufbau untergräbt
+
+**Status:** Betriebsänderung nach der Abgabe. Der Eintrag gehört nicht zur eingereichten Fassung der
+Arbeit und ist hier dokumentiert, damit der Stand der laufenden Installation nachvollziehbar bleibt.
+
+**Anlass:** Am 05.08.2026 war die Platte voll (76 von 79 GB), was die Datenlücke am 03. und 04.08.
+verursachte. Die Gegenmaßnahme packt die dyn-Snapshots pro Feed und Tag nach
+`data/archiv/{feed}_{JJJJMMTT}.tar.zst` und entfernt die Originale erst nach verifiziertem
+Archivinhalt. Damit liegt in `data/` nur noch der laufende Tag.
+
+**Befund:** `extract_stammdaten.py` und `extract_zeitreihe.py` lasen bei jedem Lauf `glob("data/*.json")`
+und bauten die CSVs vollständig neu auf. Diese Bauweise und die Archivierung schließen sich
+gegenseitig aus: Ein Vollaufbau nach der Archivierung sieht nur den laufenden Tag und hätte die
+Historie der archivierten Tage verworfen. Ein Test in einer Attrappe bestätigte zudem, dass beide
+Skripte bei leerem `data/` nicht abbrechen, sondern CSVs mit reiner Kopfzeile schreiben (179 bzw.
+64 Byte). Der Viertelstunden-Cron hätte die vorhandenen Exporte also stillschweigend durch Stummel
+ersetzt.
+
+**Entscheidung:** Die Auswertung schreibt den vorhandenen Bestand fort, statt ihn neu zu bauen.
+
+1. `extract_zeitreihe.py` hält zusätzlich zur Ausgabe-CSV den unbereinigten Rohbestand in
+   `auswertung/.zeitreihe_roh.csv` und je Feed eine Fortschrittsmarke in
+   `auswertung/.zeitreihe_marken.json`. Der Rohbestand ist notwendig, weil
+   `entferne_wiederholte_status()` (E16) Zeilen verwirft, bevor geschrieben wird. Würde nur die
+   bereinigte CSV fortgeschrieben, könnte ein später eintreffender `lastUpdated` mitten in einen
+   bereits kollabierten Statuslauf fallen und ein anderes Ergebnis liefern als ein Vollaufbau.
+   Die Bereinigung läuft deshalb immer über den vollständigen Rohbestand.
+2. Fortschrittsmarken werden nur bis zum ersten Lesefehler eines Feeds gesetzt. Der Crawler schreibt
+   alle fünf Minuten, die Auswertung liest alle fünfzehn, ein Lauf kann also eine halb geschriebene
+   Datei erwischen. Ohne diese Regel würde die Marke darüber hinwegspringen und das Paket dauerhaft
+   fehlen.
+3. Beide Skripte überschreiben eine gefüllte CSV nicht mehr mit einem leeren Ergebnis. Bei
+   `extract_stammdaten.py` wird unterschieden: keine stat-Snapshots vorhanden ist der erwartbare
+   Normalfall zwischen zwei Monatsläufen und endet mit Exit-Code 0, während vorhandene Snapshots
+   ohne einen einzigen Treffer als Fehler mit Exit-Code 1 gelten.
+4. Ein Vollaufbau bleibt über `--vollaufbau` möglich, ist aber nur über einen vollständig
+   ausgepackten Zeitraum sinnvoll und gehört nicht in den Cron.
+
+**Verifikation:** Drei echte Tage (10. bis 12.07.2026, alle fünf Feeds, 1.975 Snapshots) wurden aus dem
+Archiv ausgepackt und zweimal ausgewertet: einmal als Vollaufbau über alle drei Tage, einmal
+inkrementell Tag für Tag, wobei zwischen den Läufen die Dateien des Vortags entfernt wurden, um die
+nächtliche Archivierung nachzubilden. Beide Ergebnisse sind byte-identisch (100 Statusänderungen,
+12 entfernte Wiederholungen, MD5 1082b449003738750127d749bf074621). Zusätzlich geprüft: eine mitten im
+Feed verstümmelte Datei lässt die Marke davor stehen, ein leeres Ergebnis lässt die vorhandene CSV
+unberührt und endet mit Exit-Code 1. Der erste Produktivlauf übernahm 12.639 Statusänderungen aus der
+vorhandenen CSV, las 2.021 neue Snapshots und ergänzte zwei Zeilen; ein Mengenvergleich gegen die
+Sicherung in `auswertung_backup_20260805/` zeigt null fehlende Zeilen.
+
+**Methodische Einordnung:** Der Befund ist ein Nachläufer von E12. Erst der dortige Nachhol-Mechanismus
+erzeugte das Datenvolumen, das die Archivierung erforderlich machte, und erst die Archivierung machte
+den Vollaufbau unhaltbar. Eine Designentscheidung der Beschaffungsschicht hat damit über zwei Stufen
+hinweg die Auswertungsschicht erreicht, obwohl beide nur lose über den `data/`-Ordner gekoppelt sind.
+Für die in Abschnitt 5.1 behauptete Tragfähigkeit der losen Kopplung ist das ein Grenzfall, der die
+Aussage nicht widerlegt, sie aber präzisiert: Die Schnittstelle blieb unverändert, die Annahme über
+ihren Inhalt (alle Snapshots liegen jederzeit lose vor) war der eigentliche Kopplungspunkt.
+
+## E22 (01.10.2026, NACH der Abgabe): Monatlicher stat-Lauf wartet auf die Sperre statt abzubrechen
+
+**Status:** Betriebsänderung nach der Abgabe, wie E21 nicht Teil der eingereichten Fassung.
+
+**Anlass:** Bei der Vorbereitung der Datenübergabe an die Stadtverwaltung fiel auf, dass der neueste
+stat-Snapshot vom 07.08.2026 stammt. Die Monatsläufe am 01.09. und 01.10.2026 endeten laut
+`cron_stat.log` beide mit „Ein anderer Lauf ist noch aktiv -- breche ab.“
+
+**Befund:** Der stat-Cron (`0 2 1 * *`) startet in derselben Minute wie ein dyn-Lauf (`*/5`). Seit dem
+Nachhol-Mechanismus aus E12 dauern dyn-Läufe regelmäßig länger als 15 Minuten. Die Lock-Datei aus E12
+schützt korrekt gegen parallele Schreiber, beendete aber auch den Monatslauf sofort. Für die
+dyn-Ticks ist das richtig, denn der nächste Tick holt alles nach. Für den stat-Lauf bedeutet es einen
+verlorenen Monat, weil er erst vier Wochen später wieder startet. Der September-Snapshot ist
+dadurch endgültig verloren, die Historisierung der Stammdaten hat eine Lücke von August bis Oktober.
+
+**Entscheidung:** `_lock_belegen()` erhält einen Parameter `max_warten_sek`. Der Gesamtlauf über
+`main.py` wartet bis zu zwei Stunden, prüft die Sperre alle 15 Sekunden und übernimmt sie, sobald der
+dyn-Lauf fertig ist. `crawl_dyn.sh` ruft weiterhin ohne Wartezeit auf und bricht wie bisher ab.
+Eine bloße Verschiebung der Cron-Minute wurde verworfen, weil die Laufzeit der dyn-Läufe schwankt.
+
+**Nachholung:** Der Oktober-Snapshot wurde am 01.10.2026 manuell über `main.py` gezogen.
